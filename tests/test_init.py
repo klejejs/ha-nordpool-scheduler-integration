@@ -1,6 +1,5 @@
 """Tests for the Nordpool Scheduler integration."""
 
-
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
@@ -33,7 +32,8 @@ async def test_setup_entry(
     # Check that sensor is created
     entity_registry = er.async_get(hass)
     entries = er.async_entries_for_config_entry(
-        entity_registry, mock_config_entry.entry_id,
+        entity_registry,
+        mock_config_entry.entry_id,
     )
     assert len(entries) == 1
     assert entries[0].domain == "sensor"

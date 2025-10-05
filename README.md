@@ -202,6 +202,10 @@ Electricity prices are fetched from: `https://nordpool.didnt.work/nordpool-lv-ex
 - **CSV timestamps are in Europe/Riga (Latvia) timezone** and are automatically converted to UTC
 - This ensures correct price matching regardless of your Home Assistant timezone settings
 
+### Acknowledgments
+
+Special thanks to the creator and maintainer of **[nordpool.didnt.work](https://nordpool.didnt.work)** for providing the free Nordpool electricity price data API that makes this integration possible! 🙏
+
 ## Development
 
 ### Running Tests

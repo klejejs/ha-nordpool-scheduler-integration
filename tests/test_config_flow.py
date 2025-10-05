@@ -17,7 +17,8 @@ from custom_components.nordpool_scheduler.const import (
 async def test_form(hass: HomeAssistant, mock_switch) -> None:
     """Test the config flow form."""
     result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER},
+        DOMAIN,
+        context={"source": config_entries.SOURCE_USER},
     )
 
     assert result["type"] == FlowResultType.FORM
@@ -45,7 +46,8 @@ async def test_form(hass: HomeAssistant, mock_switch) -> None:
 async def test_form_invalid_switch(hass: HomeAssistant) -> None:
     """Test invalid switch entity."""
     result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER},
+        DOMAIN,
+        context={"source": config_entries.SOURCE_USER},
     )
 
     result2 = await hass.config_entries.flow.async_configure(
@@ -76,7 +78,8 @@ async def test_form_already_configured(hass: HomeAssistant, mock_switch) -> None
 
     # Try to create a duplicate
     result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER},
+        DOMAIN,
+        context={"source": config_entries.SOURCE_USER},
     )
 
     result2 = await hass.config_entries.flow.async_configure(
