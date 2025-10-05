@@ -1,0 +1,42 @@
+set_schedule:
+  name: Set Schedule
+  description: Set the schedule for specific time slots
+  fields:
+    entry_id:
+      name: Entry ID
+      description: The config entry ID of the scheduler
+      required: true
+      example: "abc123def456"
+      selector:
+        text:
+    slots:
+      name: Slots
+      description: Dictionary of slot indices (0-95) to boolean values indicating if the switch should be on
+      required: true
+      example: '{"0": true, "4": true, "8": false}'
+      selector:
+        object:
+
+clear_schedule:
+  name: Clear Schedule
+  description: Clear all scheduled time slots
+  fields:
+    entry_id:
+      name: Entry ID
+      description: The config entry ID of the scheduler
+      required: true
+      example: "abc123def456"
+      selector:
+        text:
+
+get_schedule:
+  name: Get Schedule
+  description: Get the current schedule for all time slots
+  fields:
+    entry_id:
+      name: Entry ID
+      description: The config entry ID of the scheduler
+      required: true
+      example: "abc123def456"
+      selector:
+        text:

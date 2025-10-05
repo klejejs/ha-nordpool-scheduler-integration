@@ -1,0 +1,79 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Nordpool Scheduler Setup",
+        "description": "Set up a new Nordpool-based scheduler for your entity",
+        "data": {
+          "scheduler_name": "Scheduler Name",
+          "target_switch": "Target Entity",
+          "default_state": "Default State"
+        },
+        "data_description": {
+          "scheduler_name": "A friendly name for this scheduler",
+          "target_switch": "The entity to control (switch, input_boolean, light, fan, or climate)",
+          "default_state": "Default state when no schedule is set (Default OFF: entity off unless scheduled on | Default ON: entity on unless scheduled off)"
+        }
+      }
+    },
+    "error": {
+      "invalid_switch": "The selected entity does not exist",
+      "unknown": "Unexpected error occurred"
+    },
+    "abort": {
+      "already_configured": "This scheduler is already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Nordpool Scheduler Options",
+        "description": "Update scheduler options",
+        "data": {
+          "target_switch": "Target Entity",
+          "default_state": "Default State"
+        },
+        "data_description": {
+          "target_switch": "The entity to control (switch, input_boolean, light, fan, or climate)",
+          "default_state": "Default state when no schedule is set"
+        }
+      }
+    }
+  },
+  "services": {
+    "set_schedule": {
+      "name": "Set Schedule",
+      "description": "Set the schedule for specific time slots",
+      "fields": {
+        "entry_id": {
+          "name": "Entry ID",
+          "description": "The config entry ID of the scheduler"
+        },
+        "slots": {
+          "name": "Slots",
+          "description": "Dictionary of slot indices (0-95) to boolean values"
+        }
+      }
+    },
+    "clear_schedule": {
+      "name": "Clear Schedule",
+      "description": "Clear all scheduled time slots",
+      "fields": {
+        "entry_id": {
+          "name": "Entry ID",
+          "description": "The config entry ID of the scheduler"
+        }
+      }
+    },
+    "get_schedule": {
+      "name": "Get Schedule",
+      "description": "Get the current schedule",
+      "fields": {
+        "entry_id": {
+          "name": "Entry ID",
+          "description": "The config entry ID of the scheduler"
+        }
+      }
+    }
+  }
+}

@@ -11,8 +11,11 @@ ignore = [
     "ANN401", # Dynamically typed expressions (typing.Any) are disallowed
     "D203", # no-blank-line-before-class (incompatible with formatter)
     "D212", # multi-line-summary-first-line (incompatible with formatter)
+    "D213", # multi-line-summary-second-line (incompatible with formatter)
     "COM812", # incompatible with formatter
     "ISC001", # incompatible with formatter
+    "TRY301", # Abstract raise to inner function (overly strict)
+    "DTZ007", # Naive datetime for CSV parsing (Nordpool CSV has no timezone)
 ]
 
 [lint.flake8-pytest-style]
@@ -23,3 +26,13 @@ keep-runtime-typing = true
 
 [lint.mccabe]
 max-complexity = 25
+
+[lint.per-file-ignores]
+"tests/**" = [
+    "S101",     # assert statements are standard in pytest
+    "ARG001",   # Pytest fixtures use dependency injection
+    "ANN001",   # Type hints on fixtures not required
+    "SLF001",   # Testing private methods is valid
+    "PLR2004",  # Magic values in test data acceptable
+    "PLC0415",  # Import placement flexible in tests
+]

@@ -1,0 +1,18 @@
+#!/bin/bash
+# Test runner script for Nordpool Scheduler integration
+
+set -e
+
+echo "Installing test dependencies..."
+pip install -q -r requirements_test.txt
+
+echo ""
+echo "Running linter..."
+ruff check custom_components/nordpool_scheduler/
+
+echo ""
+echo "Running tests..."
+pytest tests/ -v --tb=short
+
+echo ""
+echo "All tests passed!"
