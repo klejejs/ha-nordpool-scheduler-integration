@@ -101,12 +101,22 @@ async def test_schedule_overrides_default(
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
+    # Get tomorrow's date for testing
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    from tests.conftest import get_schedule_key
+
+    riga_tz = ZoneInfo("Europe/Riga")
+    tomorrow = (datetime.now(riga_tz).date() + timedelta(days=1)).isoformat()
+
     # Set schedule to turn OFF at slot 0 (override default ON)
     await hass.services.async_call(
         DOMAIN,
         "set_schedule",
         {
             "entry_id": entry.entry_id,
+            "date": tomorrow,
             "slots": {
                 "0": False,  # Explicitly OFF
                 "4": True,  # Explicitly ON
@@ -117,6 +127,12 @@ async def test_schedule_overrides_default(
 
     # Check that schedule has overrides
     entry_data = hass.data[DOMAIN][entry.entry_id]
-    assert entry_data["schedule"][0] is False  # Override to OFF
-    assert entry_data["schedule"][4] is True  # Override to ON
-    assert 8 not in entry_data["schedule"]  # Not scheduled, will use default (ON)
+    assert (
+        entry_data["schedule"][get_schedule_key(0, days_ahead=1)] is False
+    )  # Override to OFF
+    assert (
+        entry_data["schedule"][get_schedule_key(4, days_ahead=1)] is True
+    )  # Override to ON
+    assert (
+        get_schedule_key(8, days_ahead=1) not in entry_data["schedule"]
+    )  # Not scheduled, will use default (ON)

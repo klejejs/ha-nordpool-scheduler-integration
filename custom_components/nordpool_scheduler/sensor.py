@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
+from zoneinfo import ZoneInfo
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -69,7 +70,7 @@ class NordpoolPriceSensor(
         self._entry = entry
         self._scheduler_name = scheduler_name
         self._attr_unique_id = f"{entry.entry_id}_electricity_price"
-        self._attr_name = f"{scheduler_name} Electricity Price"
+        self._attr_name = "Electricity Price"
 
     @property
     def native_value(self) -> float | None:
@@ -95,9 +96,10 @@ class NordpoolPriceSensor(
             "default_state": self._entry.data.get(CONF_DEFAULT_STATE),
         }
 
-        # Add current slot index
-        now = datetime.now(UTC)
-        current_slot = now.hour * 4 + (now.minute // 15)
+        # Add current slot index (in Riga timezone for electricity pricing)
+        riga_tz = ZoneInfo("Europe/Riga")
+        now_riga = datetime.now(riga_tz)
+        current_slot = now_riga.hour * 4 + (now_riga.minute // 15)
         attrs["current_slot"] = current_slot
 
         # Calculate price statistics if we have data
@@ -118,23 +120,37 @@ class NordpoolPriceSensor(
         else:
             attrs["target_entity_state"] = None
 
-        # Add scheduled override times
+        # Add scheduled override times with dates
         entry_data = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {})
         schedule = entry_data.get("schedule", {})
 
-        # Convert schedule slots to time strings
+        # Parse date-based schedule keys and convert to readable format
         scheduled_times = []
-        for slot_index, state in sorted(schedule.items()):
-            hour = slot_index // 4
-            minute = (slot_index % 4) * 15
-            time_str = f"{hour:02d}:{minute:02d}"
-            scheduled_times.append(
-                {
-                    "time": time_str,
-                    "slot": slot_index,
-                    "state": "on" if state else "off",
-                }
-            )
+        for key, state in schedule.items():
+            # Parse "YYYY-MM-DD_slot" format
+            try:
+                date_str, slot_str = key.split("_")
+                slot_index = int(slot_str)
+
+                hour = slot_index // 4
+                minute = (slot_index % 4) * 15
+                time_str = f"{hour:02d}:{minute:02d}"
+
+                scheduled_times.append(
+                    {
+                        "date": date_str,
+                        "time": time_str,
+                        "datetime": f"{date_str} {time_str}",
+                        "slot": slot_index,
+                        "state": "on" if state else "off",
+                    }
+                )
+            except (ValueError, AttributeError):
+                # Skip invalid keys
+                continue
+
+        # Sort by date and time
+        scheduled_times.sort(key=lambda x: x["datetime"])
 
         attrs["scheduled_overrides"] = scheduled_times
         attrs["scheduled_overrides_count"] = len(scheduled_times)

@@ -28,9 +28,10 @@ async def test_sensor_setup(
         mock_config_entry.entry_id,
     )
 
-    assert len(entries) == 1
-    assert entries[0].domain == "sensor"
-    assert "electricity_price" in entries[0].unique_id
+    # Filter for sensor entities only
+    sensor_entries = [e for e in entries if e.domain == "sensor"]
+    assert len(sensor_entries) == 1
+    assert "electricity_price" in sensor_entries[0].unique_id
 
 
 async def test_sensor_state(
@@ -51,8 +52,9 @@ async def test_sensor_state(
         entity_registry,
         mock_config_entry.entry_id,
     )
-    assert len(entries) > 0
-    sensor_entity_id = entries[0].entity_id
+    sensor_entries = [e for e in entries if e.domain == "sensor"]
+    assert len(sensor_entries) > 0
+    sensor_entity_id = sensor_entries[0].entity_id
 
     state = hass.states.get(sensor_entity_id)
 
@@ -85,8 +87,9 @@ async def test_sensor_attributes(
         entity_registry,
         mock_config_entry.entry_id,
     )
-    assert len(entries) > 0
-    sensor_entity_id = entries[0].entity_id
+    sensor_entries = [e for e in entries if e.domain == "sensor"]
+    assert len(sensor_entries) > 0
+    sensor_entity_id = sensor_entries[0].entity_id
 
     state = hass.states.get(sensor_entity_id)
 
@@ -114,8 +117,10 @@ async def test_sensor_device_info(
         mock_config_entry.entry_id,
     )
 
-    assert len(entries) == 1
-    sensor_entry = entries[0]
+    # Filter for sensor entities only
+    sensor_entries = [e for e in entries if e.domain == "sensor"]
+    assert len(sensor_entries) == 1
+    sensor_entry = sensor_entries[0]
 
     # Check device info
     assert sensor_entry.device_id is not None
@@ -142,8 +147,9 @@ async def test_sensor_target_entity_state(
         entity_registry,
         mock_config_entry.entry_id,
     )
-    assert len(entries) > 0
-    sensor_entity_id = entries[0].entity_id
+    sensor_entries = [e for e in entries if e.domain == "sensor"]
+    assert len(sensor_entries) > 0
+    sensor_entity_id = sensor_entries[0].entity_id
 
     state = hass.states.get(sensor_entity_id)
     assert state is not None
@@ -182,8 +188,9 @@ async def test_sensor_scheduled_overrides_empty(
         entity_registry,
         mock_config_entry.entry_id,
     )
-    assert len(entries) > 0
-    sensor_entity_id = entries[0].entity_id
+    sensor_entries = [e for e in entries if e.domain == "sensor"]
+    assert len(sensor_entries) > 0
+    sensor_entity_id = sensor_entries[0].entity_id
 
     state = hass.states.get(sensor_entity_id)
     assert state is not None
@@ -213,15 +220,24 @@ async def test_sensor_scheduled_overrides_with_schedule(
         entity_registry,
         mock_config_entry.entry_id,
     )
-    assert len(entries) > 0
-    sensor_entity_id = entries[0].entity_id
+    sensor_entries = [e for e in entries if e.domain == "sensor"]
+    assert len(sensor_entries) > 0
+    sensor_entity_id = sensor_entries[0].entity_id
 
-    # Set a schedule with multiple slots
+    # Get tomorrow's date for testing
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    riga_tz = ZoneInfo("Europe/Riga")
+    tomorrow = (datetime.now(riga_tz).date() + timedelta(days=1)).isoformat()
+
+    # Set a schedule with multiple slots on tomorrow
     await hass.services.async_call(
         DOMAIN,
         "set_schedule",
         {
             "entry_id": mock_config_entry.entry_id,
+            "date": tomorrow,
             "slots": {
                 "0": True,  # 00:00
                 "4": True,  # 01:00
@@ -277,12 +293,20 @@ async def test_sensor_scheduled_overrides_after_clear(
     assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
     await hass.async_block_till_done()
 
-    # Set a schedule first
+    # Get tomorrow's date for testing
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    riga_tz = ZoneInfo("Europe/Riga")
+    tomorrow = (datetime.now(riga_tz).date() + timedelta(days=1)).isoformat()
+
+    # Set a schedule first on tomorrow
     await hass.services.async_call(
         DOMAIN,
         "set_schedule",
         {
             "entry_id": mock_config_entry.entry_id,
+            "date": tomorrow,
             "slots": {
                 "0": True,
                 "4": True,
@@ -297,8 +321,9 @@ async def test_sensor_scheduled_overrides_after_clear(
         entity_registry,
         mock_config_entry.entry_id,
     )
-    assert len(entries) > 0
-    sensor_entity_id = entries[0].entity_id
+    sensor_entries = [e for e in entries if e.domain == "sensor"]
+    assert len(sensor_entries) > 0
+    sensor_entity_id = sensor_entries[0].entity_id
 
     # Force sensor to update
     await async_update_entity(hass, sensor_entity_id)
@@ -344,15 +369,24 @@ async def test_sensor_time_formatting(
         entity_registry,
         mock_config_entry.entry_id,
     )
-    assert len(entries) > 0
-    sensor_entity_id = entries[0].entity_id
+    sensor_entries = [e for e in entries if e.domain == "sensor"]
+    assert len(sensor_entries) > 0
+    sensor_entity_id = sensor_entries[0].entity_id
 
-    # Set schedules for various times to test formatting
+    # Get tomorrow's date for testing
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    riga_tz = ZoneInfo("Europe/Riga")
+    tomorrow = (datetime.now(riga_tz).date() + timedelta(days=1)).isoformat()
+
+    # Set schedules for various times to test formatting on tomorrow
     await hass.services.async_call(
         DOMAIN,
         "set_schedule",
         {
             "entry_id": mock_config_entry.entry_id,
+            "date": tomorrow,
             "slots": {
                 "0": True,  # 00:00
                 "1": True,  # 00:15
@@ -397,8 +431,9 @@ async def test_sensor_target_entity_unavailable(
         entity_registry,
         mock_config_entry.entry_id,
     )
-    assert len(entries) > 0
-    sensor_entity_id = entries[0].entity_id
+    sensor_entries = [e for e in entries if e.domain == "sensor"]
+    assert len(sensor_entries) > 0
+    sensor_entity_id = sensor_entries[0].entity_id
 
     state = hass.states.get(sensor_entity_id)
     assert state is not None

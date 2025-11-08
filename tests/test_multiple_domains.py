@@ -171,6 +171,11 @@ async def test_service_set_schedule_with_different_domains(
     entity_id: str,
 ) -> None:
     """Test set_schedule service works with different entity domains."""
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    from tests.conftest import get_schedule_key
+
     hass.states.async_set(entity_id, STATE_OFF)
 
     entry = MockConfigEntry(
@@ -188,12 +193,17 @@ async def test_service_set_schedule_with_different_domains(
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    # Set schedule for multiple slots
+    # Get tomorrow's date for testing
+    riga_tz = ZoneInfo("Europe/Riga")
+    tomorrow = (datetime.now(riga_tz).date() + timedelta(days=1)).isoformat()
+
+    # Set schedule for multiple slots on tomorrow
     await hass.services.async_call(
         DOMAIN,
         "set_schedule",
         {
             "entry_id": entry.entry_id,
+            "date": tomorrow,
             "slots": {
                 "0": True,
                 "1": True,
@@ -206,10 +216,10 @@ async def test_service_set_schedule_with_different_domains(
 
     # Verify schedule was set correctly
     entry_data = hass.data[DOMAIN][entry.entry_id]
-    assert entry_data["schedule"][0] is True
-    assert entry_data["schedule"][1] is True
-    assert entry_data["schedule"][2] is False
-    assert entry_data["schedule"][10] is True
+    assert entry_data["schedule"][get_schedule_key(0, days_ahead=1)] is True
+    assert entry_data["schedule"][get_schedule_key(1, days_ahead=1)] is True
+    assert entry_data["schedule"][get_schedule_key(2, days_ahead=1)] is False
+    assert entry_data["schedule"][get_schedule_key(10, days_ahead=1)] is True
 
 
 async def test_domain_extraction_from_entity_id(

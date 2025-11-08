@@ -1,8 +1,10 @@
 """Fixtures for Nordpool Scheduler tests."""
 
 from collections.abc import Generator
+from datetime import datetime
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
+from zoneinfo import ZoneInfo
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -15,6 +17,18 @@ from custom_components.nordpool_scheduler.const import (
     DEFAULT_STATE_OFF,
     DOMAIN,
 )
+
+
+def get_schedule_key(slot_index: int, days_ahead: int = 0) -> str:
+    """Get a date-based schedule key for testing.
+
+    Uses today's or tomorrow's date in Riga timezone.
+    """
+    riga_tz = ZoneInfo("Europe/Riga")
+    from datetime import timedelta
+
+    target_date = datetime.now(riga_tz).date() + timedelta(days=days_ahead)
+    return f"{target_date.isoformat()}_{slot_index}"
 
 
 # This fixture enables loading custom integrations in all tests.

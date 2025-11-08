@@ -16,6 +16,7 @@ ignore = [
     "ISC001", # incompatible with formatter
     "TRY301", # Abstract raise to inner function (overly strict)
     "DTZ007", # Naive datetime for CSV parsing (Nordpool CSV has no timezone)
+    "PLR0915", # Too many statements (service registration function groups related handlers)
 ]
 
 [lint.flake8-pytest-style]
