@@ -1,216 +1,217 @@
-"""DataUpdateCoordinator for Nordpool Scheduler."""
+"""DataUpdateCoordinator for Nordpool Scheduler.
+
+Prices are sourced from the core ``nordpool`` integration's
+``get_prices_for_date`` service rather than fetched directly, so this
+coordinator never talks to the network itself.
+"""
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
-from zoneinfo import ZoneInfo
+from datetime import date, datetime, timedelta
+from typing import TYPE_CHECKING
 
-import aiohttp
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.core import CALLBACK_TYPE, callback
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
 
 from .const import (
+    CONF_AREA,
+    CONF_NORDPOOL_ENTRY_ID,
+    CONF_VAT_PERCENT,
+    DEFAULT_VAT_PERCENT,
     DOMAIN,
-    NORDPOOL_CSV_URL,
-    SLOTS_PER_DAY,
-    UPDATE_INTERVAL,
-    VAT_MULTIPLIER,
+    NORDPOOL_DOMAIN,
+    NORDPOOL_SERVICE_GET_PRICES_FOR_DATE,
+    NORDPOOL_TIMEZONE_NAME,
+    SLOT_MINUTES,
 )
+from .util import slot_start_for
 
 if TYPE_CHECKING:
+    from zoneinfo import ZoneInfo
+
+    from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 
-# HTTP status constants
-HTTP_OK = 200
-CSV_FIELDS_COUNT = 3
+REFRESH_INTERVAL = timedelta(hours=1)
+# Nord Pool typically publishes next-day prices between 13:00 and 15:00 CET.
+PUBLISH_CHECK_HOUR = 13
+PUBLISH_CHECK_MINUTE = 5
 
 
-class NordpoolDataUpdateCoordinator(DataUpdateCoordinator):
-    """Class to manage fetching Nordpool price data."""
+class NordpoolSchedulerPriceCoordinator(DataUpdateCoordinator[dict[datetime, float]]):
+    """Fetch Nord Pool prices via the core nordpool integration and cache them.
 
-    def __init__(self, hass: HomeAssistant) -> None:
+    ``data`` maps each slot's UTC start timestamp to its price, in the Nord
+    Pool config entry's currency per kWh, including VAT.
+    """
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
         super().__init__(
             hass,
             _LOGGER,
+            config_entry=entry,
             name=DOMAIN,
-            update_interval=UPDATE_INTERVAL,
+            update_interval=REFRESH_INTERVAL,
         )
-        self.prices: list[float | None] = [None] * (
-            SLOTS_PER_DAY * 2
-        )  # Today + tomorrow
+        self.nordpool_entry_id: str = entry.data[CONF_NORDPOOL_ENTRY_ID]
+        self.area: str = entry.data[CONF_AREA]
+        self.currency: str = "EUR"
+        self._publish_check_unsub: CALLBACK_TYPE | None = None
+        self._slot_tick_unsub: CALLBACK_TYPE | None = None
+        self._oslo_tz: ZoneInfo | None = None
 
-    async def _async_update_data(self) -> dict[str, Any]:
-        """Fetch data from Nordpool."""
+    @property
+    def vat_percent(self) -> float:
+        """Return the currently configured VAT percentage."""
+        entry = self.config_entry
+        return entry.options.get(
+            CONF_VAT_PERCENT,
+            entry.data.get(CONF_VAT_PERCENT, DEFAULT_VAT_PERCENT),
+        )
+
+    async def _async_setup(self) -> None:
+        """Resolve the Nord Pool currency and schedule the publish-time check."""
+        nordpool_entry = self.hass.config_entries.async_get_entry(
+            self.nordpool_entry_id
+        )
+        if nordpool_entry is None:
+            msg = "The configured Nord Pool config entry no longer exists"
+            raise UpdateFailed(msg)
+        self.currency = nordpool_entry.data.get("currency", "EUR")
+
+        self._oslo_tz = await dt_util.async_get_time_zone(NORDPOOL_TIMEZONE_NAME)
+        self._schedule_publish_check()
+        self._schedule_slot_tick()
+        self.config_entry.async_on_unload(self._cancel_timers)
+
+    def _schedule_publish_check(self) -> None:
+        """Schedule an extra refresh around the time next-day prices publish."""
+        now_oslo = dt_util.utcnow().astimezone(self._oslo_tz)
+        next_check = now_oslo.replace(
+            hour=PUBLISH_CHECK_HOUR,
+            minute=PUBLISH_CHECK_MINUTE,
+            second=0,
+            microsecond=0,
+        )
+        if next_check <= now_oslo:
+            next_check += timedelta(days=1)
+
+        self._publish_check_unsub = async_track_point_in_utc_time(
+            self.hass,
+            self._async_publish_check,
+            next_check.astimezone(dt_util.UTC),
+        )
+
+    async def _async_publish_check(self, _now: datetime) -> None:
+        """Refresh once around publish time, then reschedule for tomorrow."""
+        self._schedule_publish_check()
+        await self.async_request_refresh()
+
+    def _schedule_slot_tick(self) -> None:
+        """Schedule a listener notification at the next 15-minute boundary.
+
+        This lets entities recompute ``native_value`` (the current slot's
+        price) as time passes, even between price fetches.
+        """
+        next_tick = slot_start_for(dt_util.utcnow()) + timedelta(minutes=SLOT_MINUTES)
+        self._slot_tick_unsub = async_track_point_in_utc_time(
+            self.hass, self._async_slot_tick, next_tick
+        )
+
+    @callback
+    def _async_slot_tick(self, _now: datetime) -> None:
+        self._schedule_slot_tick()
+        self.async_update_listeners()
+
+    def _cancel_timers(self) -> None:
+        if self._publish_check_unsub:
+            self._publish_check_unsub()
+            self._publish_check_unsub = None
+        if self._slot_tick_unsub:
+            self._slot_tick_unsub()
+            self._slot_tick_unsub = None
+
+    async def _async_update_data(self) -> dict[datetime, float]:
+        """Fetch yesterday, today and tomorrow's prices (Nord Pool/CET days)."""
+        today_oslo = dt_util.utcnow().astimezone(self._oslo_tz).date()
+
+        prices: dict[datetime, float] = {}
+        have_any = False
+        for offset in (-1, 0, 1):
+            day = today_oslo + timedelta(days=offset)
+            try:
+                day_prices = await self._async_fetch_day(day)
+            except NordpoolUnavailableError as err:
+                # Tomorrow's prices are simply not published yet; that's fine.
+                # Today or yesterday missing is a real (if unusual) failure.
+                if offset == 1:
+                    continue
+                raise UpdateFailed(str(err)) from err
+            prices.update(day_prices)
+            have_any = True
+
+        if not have_any:
+            msg = "Nord Pool returned no price data"
+            raise UpdateFailed(msg)
+
+        return prices
+
+    async def _async_fetch_day(self, day: date) -> dict[datetime, float]:
+        """Fetch one CET delivery day of prices, converted to currency/kWh."""
         try:
-            async with asyncio.timeout(10):
-                session = async_get_clientsession(self.hass)
-                async with session.get(NORDPOOL_CSV_URL) as response:
-                    if response.status != HTTP_OK:
-                        msg = f"Error fetching Nordpool data: {response.status}"
-                        _LOGGER.warning(msg)
-                        # Return existing data if available
-                        if self.data:
-                            _LOGGER.info("Using cached data due to fetch error")
-                            # Update current price with cached data
-                            current_slot = self._get_current_slot_index()
-                            prices = self.data.get("prices", self.prices)
-                            current_price = (
-                                prices[current_slot]
-                                if current_slot < len(prices)
-                                else None
-                            )
-                            return {
-                                "prices": prices,
-                                "current_price": current_price,
-                                "last_update": self.data.get(
-                                    "last_update",
-                                    datetime.now(UTC),
-                                ),
-                            }
-                        raise UpdateFailed(msg)
-
-                    csv_data = await response.text()
-                    prices = await self._parse_csv_data(csv_data)
-
-                    current_slot = self._get_current_slot_index()
-                    current_price = (
-                        prices[current_slot] if current_slot < len(prices) else None
-                    )
-
-                    return {
-                        "prices": prices,
-                        "current_price": current_price,
-                        "last_update": datetime.now(UTC),
-                    }
-        except aiohttp.ClientError as err:
-            _LOGGER.warning("Error communicating with Nordpool API: %s", err)
-            # Return existing data if available
-            if self.data:
-                _LOGGER.info("Using cached data due to connection error")
-                current_slot = self._get_current_slot_index()
-                prices = self.data.get("prices", self.prices)
-                current_price = (
-                    prices[current_slot] if current_slot < len(prices) else None
-                )
-                return {
-                    "prices": prices,
-                    "current_price": current_price,
-                    "last_update": self.data.get("last_update", datetime.now(UTC)),
-                }
-            msg = f"Error communicating with Nordpool API: {err}"
-            raise UpdateFailed(msg) from err
-        except TimeoutError as err:
-            _LOGGER.warning("Timeout fetching Nordpool data: %s", err)
-            # Return existing data if available
-            if self.data:
-                _LOGGER.info("Using cached data due to timeout")
-                current_slot = self._get_current_slot_index()
-                prices = self.data.get("prices", self.prices)
-                current_price = (
-                    prices[current_slot] if current_slot < len(prices) else None
-                )
-                return {
-                    "prices": prices,
-                    "current_price": current_price,
-                    "last_update": self.data.get("last_update", datetime.now(UTC)),
-                }
-            msg = f"Timeout fetching Nordpool data: {err}"
-            raise UpdateFailed(msg) from err
-        except Exception as err:
-            _LOGGER.warning("Unexpected error fetching Nordpool data: %s", err)
-            # Return existing data if available
-            if self.data:
-                _LOGGER.info("Using cached data due to unexpected error")
-                current_slot = self._get_current_slot_index()
-                prices = self.data.get("prices", self.prices)
-                current_price = (
-                    prices[current_slot] if current_slot < len(prices) else None
-                )
-                return {
-                    "prices": prices,
-                    "current_price": current_price,
-                    "last_update": self.data.get("last_update", datetime.now(UTC)),
-                }
-            msg = f"Unexpected error: {err}"
-            raise UpdateFailed(msg) from err
-
-    async def _parse_csv_data(self, csv_data: str) -> list[float | None]:
-        """Parse CSV data from Nordpool."""
-        try:
-            # CSV times are in Europe/Riga (Latvia) timezone
-            riga_tz = ZoneInfo("Europe/Riga")
-
-            # Get start of today in Riga timezone (not UTC!)
-            # Electricity pricing is based on local time
-            now_riga = datetime.now(riga_tz)
-            start_riga = now_riga.replace(
-                hour=0,
-                minute=0,
-                second=0,
-                microsecond=0,
+            response = await self.hass.services.async_call(
+                NORDPOOL_DOMAIN,
+                NORDPOOL_SERVICE_GET_PRICES_FOR_DATE,
+                {
+                    "config_entry": self.nordpool_entry_id,
+                    "date": day.isoformat(),
+                    "areas": [self.area],
+                },
+                blocking=True,
+                return_response=True,
             )
-
-            lines = csv_data.split("\n")[1:]  # Skip header
-            rows = [line.split(";") for line in lines if line.strip()]
-
-            parsed_data = []
-            for row in rows:
-                if len(row) == CSV_FIELDS_COUNT:
-                    try:
-                        # Nordpool CSV times are in Europe/Riga timezone (naive)
-                        # Parse start time and make it timezone-aware
-                        ts_start_naive = datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S")
-                        ts_start_riga = ts_start_naive.replace(tzinfo=riga_tz)
-
-                        # Only include data from today onwards (in Riga local time)
-                        # Check start time to avoid including yesterday's last slot
-                        if ts_start_riga >= start_riga:
-                            # Calculate price with VAT in EUR/kWh
-                            # CSV prices are already in EUR/kWh, just add VAT and round
-                            price = round(float(row[2]) * VAT_MULTIPLIER, 4)
-                            parsed_data.append(
-                                {
-                                    "ts_start": ts_start_riga,
-                                    "price": price,
-                                },
-                            )
-                    except (ValueError, IndexError) as e:
-                        _LOGGER.debug("Skipping invalid row: %s - %s", row, e)
-                        continue
-
-            # Sort by timestamp
-            parsed_data.sort(key=lambda x: x["ts_start"])
-
-            # Extract just the prices and pad to 192 slots (2 days)
-            prices = [item["price"] for item in parsed_data]
-            padded_prices = [
-                prices[i] if i < len(prices) else None for i in range(SLOTS_PER_DAY * 2)
-            ]
-
-            self.prices = padded_prices
-
-        except Exception as err:
-            _LOGGER.exception("Error parsing CSV data")
-            msg = f"Error parsing CSV data: {err}"
+        except ServiceValidationError as err:
+            raise NordpoolUnavailableError(str(err)) from err
+        except HomeAssistantError as err:
+            msg = f"Error calling nordpool.get_prices_for_date: {err}"
             raise UpdateFailed(msg) from err
-        else:
-            return padded_prices
 
-    def _get_current_slot_index(self) -> int:
-        """Get the current slot index (0-95 for today) in Riga timezone."""
-        # Use Riga timezone since electricity pricing is based on local time
-        riga_tz = ZoneInfo("Europe/Riga")
-        now_riga = datetime.now(riga_tz)
-        return now_riga.hour * 4 + (now_riga.minute // 15)
+        area_entries = (response or {}).get(self.area) or []
+        if not area_entries:
+            msg = f"No prices published yet for {day}"
+            raise NordpoolUnavailableError(msg)
 
-    def get_price_for_slot(self, slot_index: int) -> float | None:
-        """Get price for a specific slot index."""
-        if 0 <= slot_index < len(self.prices):
-            return self.prices[slot_index]
-        return None
+        vat_multiplier = 1 + self.vat_percent / 100
+        day_prices: dict[datetime, float] = {}
+        for entry in area_entries:
+            start = dt_util.parse_datetime(entry["start"])
+            end = dt_util.parse_datetime(entry["end"])
+            if start is None or end is None:
+                continue
+            price = round(entry["price"] / 1000 * vat_multiplier, 5)
+            # Nord Pool's delivery periods aren't guaranteed to be 15 minutes
+            # (an hourly market reports one entry per hour); fan each entry
+            # out over every scheduler slot it actually covers.
+            slot_start = dt_util.as_utc(start)
+            slot_end = dt_util.as_utc(end)
+            while slot_start < slot_end:
+                day_prices[slot_start] = price
+                slot_start += timedelta(minutes=SLOT_MINUTES)
+        return day_prices
+
+    def get_price(self, slot_start: datetime) -> float | None:
+        """Return the known price for the slot starting at ``slot_start``."""
+        if not self.data:
+            return None
+        return self.data.get(slot_start)
+
+
+class NordpoolUnavailableError(HomeAssistantError):
+    """Raised when Nord Pool has no prices for a requested day yet."""

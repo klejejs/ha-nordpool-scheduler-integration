@@ -2,126 +2,79 @@
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
 )
-from homeassistant.const import STATE_ON
-from homeassistant.core import Event, callback
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.core import callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.util import dt as dt_util
 
-from .const import (
-    CONF_SCHEDULER_NAME,
-    CONF_TARGET_SWITCH,
-    DOMAIN,
-)
+from .const import CONF_DEFAULT_STATE, CONF_TARGET_ENTITY, STATE_DEFAULT_ON
+from .entity import build_device_info
+from .util import slot_start_for
 
 if TYPE_CHECKING:
-    from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-_LOGGER = logging.getLogger(__name__)
+    from . import NordpoolSchedulerConfigEntry
 
 
 async def async_setup_entry(
-    hass: HomeAssistant,
-    entry: ConfigEntry,
+    _hass: HomeAssistant,
+    entry: NordpoolSchedulerConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up Nordpool Scheduler binary sensor based on a config entry."""
-    scheduler_name = entry.data[CONF_SCHEDULER_NAME]
-    target_entity = entry.data[CONF_TARGET_SWITCH]
-
-    async_add_entities(
-        [NordpoolTargetStateSensor(hass, entry, scheduler_name, target_entity)],
-        update_before_add=True,
-    )
+    """Set up the scheduled-on binary sensor for a config entry."""
+    async_add_entities([NordpoolSchedulerScheduledOnSensor(entry)])
 
 
-class NordpoolTargetStateSensor(BinarySensorEntity):
-    """Binary sensor representing the current state of the target entity."""
+class NordpoolSchedulerScheduledOnSensor(BinarySensorEntity):
+    """Whether the schedule wants the target entity on right now."""
 
     _attr_device_class = BinarySensorDeviceClass.RUNNING
     _attr_has_entity_name = True
+    _attr_translation_key = "scheduled_on"
+    _attr_should_poll = False
 
-    def __init__(
-        self,
-        hass: HomeAssistant,
-        entry: ConfigEntry,
-        scheduler_name: str,
-        target_entity: str,
-    ) -> None:
-        """Initialize the binary sensor."""
-        self.hass = hass
+    def __init__(self, entry: NordpoolSchedulerConfigEntry) -> None:
+        """Initialize."""
         self._entry = entry
-        self._scheduler_name = scheduler_name
-        self._target_entity = target_entity
-        self._attr_unique_id = f"{entry.entry_id}_target_state"
-        self._attr_name = "Target State"
-        self._attr_is_on = False
-
-        # Track state changes of the target entity
-        self._unsubscribe = None
+        self._attr_unique_id = f"{entry.entry_id}_scheduled_on"
+        self._attr_device_info = build_device_info(entry)
 
     async def async_added_to_hass(self) -> None:
-        """Register state listener when entity is added."""
+        """Subscribe to schedule updates."""
         await super().async_added_to_hass()
-
-        # Subscribe to target entity state changes
-        @callback
-        def target_state_listener(event: Event) -> None:
-            """Handle target entity state changes."""
-            new_state = event.data.get("new_state")
-            if new_state:
-                self._attr_is_on = new_state.state == STATE_ON
-                self.async_write_ha_state()
-
-        # Use entity-specific listener instead of global state_changed bus
-        self._unsubscribe = async_track_state_change_event(
-            self.hass,
-            [self._target_entity],
-            target_state_listener,
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, self._entry.runtime_data.update_signal, self._async_refresh
+            )
         )
 
-        # Set initial state
-        target_state = self.hass.states.get(self._target_entity)
-        if target_state:
-            self._attr_is_on = target_state.state == STATE_ON
+    @callback
+    def _async_refresh(self) -> None:
+        self.async_write_ha_state()
 
-    async def async_will_remove_from_hass(self) -> None:
-        """Unsubscribe from state changes when entity is removed."""
-        if self._unsubscribe:
-            self._unsubscribe()
-        await super().async_will_remove_from_hass()
+    @property
+    def is_on(self) -> bool:
+        """Return whether the current slot is scheduled on."""
+        settings = {**self._entry.data, **self._entry.options}
+        default_on = settings.get(CONF_DEFAULT_STATE) == STATE_DEFAULT_ON
+        slot_start = slot_start_for(dt_util.utcnow())
+        override = self._entry.runtime_data.schedule.get(slot_start)
+        return default_on if override is None else override
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return the state attributes."""
-        target_state = self.hass.states.get(self._target_entity)
+        settings = {**self._entry.data, **self._entry.options}
+        target_entity = settings[CONF_TARGET_ENTITY]
+        target_state = self.hass.states.get(target_entity)
         return {
-            "target_entity": self._target_entity,
+            "target_entity": target_entity,
             "target_state": target_state.state if target_state else "unavailable",
-            "entry_id": self._entry.entry_id,
-            "scheduler_name": self._scheduler_name,
-        }
-
-    @property
-    def available(self) -> bool:
-        """Return if entity is available."""
-        target_state = self.hass.states.get(self._target_entity)
-        return target_state is not None
-
-    @property
-    def device_info(self) -> dict[str, Any]:
-        """Return device information."""
-        return {
-            "identifiers": {(DOMAIN, self._entry.entry_id)},
-            "name": f"Nordpool Scheduler - {self._scheduler_name}",
-            "manufacturer": "Nordpool",
-            "model": "Price Scheduler",
-            "sw_version": "1.0.0",
         }

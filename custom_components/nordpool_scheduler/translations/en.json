@@ -3,75 +3,107 @@
     "step": {
       "user": {
         "title": "Nordpool Scheduler Setup",
-        "description": "Set up a new Nordpool-based scheduler for your entity",
+        "description": "Set up a new Nord Pool price-based scheduler for an entity",
         "data": {
           "scheduler_name": "Scheduler Name",
-          "target_switch": "Target Entity",
-          "default_state": "Default State"
+          "target_entity": "Target Entity",
+          "default_state": "Default State",
+          "nordpool_config_entry_id": "Nord Pool source"
         },
         "data_description": {
           "scheduler_name": "A friendly name for this scheduler",
-          "target_switch": "The entity to control (switch, input_boolean, light, fan, or climate)",
-          "default_state": "Default state when no schedule is set (Default OFF: entity off unless scheduled on | Default ON: entity on unless scheduled off)"
+          "target_entity": "The entity to control (switch, input_boolean, light, fan, or climate)",
+          "default_state": "Default state when no schedule override is set for a slot",
+          "nordpool_config_entry_id": "The Nord Pool integration entry to price by"
+        }
+      },
+      "area": {
+        "title": "Nord Pool Area",
+        "description": "Choose which area of the selected Nord Pool source to price this scheduler by",
+        "data": {
+          "area": "Area"
         }
       }
     },
     "error": {
-      "invalid_switch": "The selected entity does not exist",
-      "unknown": "Unexpected error occurred"
+      "invalid_target": "The selected entity does not exist"
     },
     "abort": {
-      "already_configured": "This scheduler is already configured"
+      "already_configured": "This entity already has a scheduler",
+      "nordpool_not_configured": "Set up the Nord Pool integration first",
+      "nordpool_no_areas": "The selected Nord Pool source has no areas configured"
     }
   },
   "options": {
     "step": {
       "init": {
         "title": "Nordpool Scheduler Options",
-        "description": "Update scheduler options",
         "data": {
-          "target_switch": "Target Entity",
-          "default_state": "Default State"
+          "target_entity": "Target Entity",
+          "default_state": "Default State",
+          "control_mode": "Manual toggles",
+          "vat_percent": "VAT percentage"
         },
         "data_description": {
-          "target_switch": "The entity to control (switch, input_boolean, light, fan, or climate)",
-          "default_state": "Default state when no schedule is set"
+          "target_entity": "The entity to control (switch, input_boolean, light, fan, or climate)",
+          "default_state": "Default state when no schedule override is set for a slot",
+          "control_mode": "Whether to leave a manually-toggled entity alone until the schedule changes, or re-apply the schedule every 15 minutes",
+          "vat_percent": "Added on top of the Nord Pool price"
         }
+      }
+    },
+    "error": {
+      "invalid_target": "The selected entity does not exist",
+      "already_configured": "This entity already has a scheduler"
+    }
+  },
+  "entity": {
+    "sensor": {
+      "electricity_price": {
+        "name": "Electricity price"
+      }
+    },
+    "binary_sensor": {
+      "scheduled_on": {
+        "name": "Scheduled on"
+      }
+    },
+    "switch": {
+      "scheduler_enabled": {
+        "name": "Scheduler enabled"
       }
     }
   },
+  "exceptions": {
+    "slot_not_aligned": {
+      "message": "Slot start {start} is not aligned to a {minutes}-minute boundary"
+    },
+    "slot_out_of_range": {
+      "message": "Slot start {start} is outside the range of known prices"
+    }
+  },
   "services": {
-    "set_schedule": {
-      "name": "Set Schedule",
-      "description": "Set the schedule for specific time slots",
+    "set_slots": {
+      "name": "Set slots",
+      "description": "Set one or more 15-minute slots to on, off, or back to the default state",
       "fields": {
-        "entry_id": {
-          "name": "Entry ID",
-          "description": "The config entry ID of the scheduler"
+        "config_entry": {
+          "name": "Scheduler",
+          "description": "The Nordpool Scheduler entry to update"
         },
         "slots": {
           "name": "Slots",
-          "description": "Dictionary of slot indices (0-95) to boolean values"
+          "description": "A list of {start, state} objects, where start is an ISO 8601 timestamp aligned to a 15-minute boundary and state is 'on', 'off', or 'default'"
         }
       }
     },
     "clear_schedule": {
-      "name": "Clear Schedule",
-      "description": "Clear all scheduled time slots",
+      "name": "Clear schedule",
+      "description": "Remove every scheduled slot override, reverting to the default state",
       "fields": {
-        "entry_id": {
-          "name": "Entry ID",
-          "description": "The config entry ID of the scheduler"
-        }
-      }
-    },
-    "get_schedule": {
-      "name": "Get Schedule",
-      "description": "Get the current schedule",
-      "fields": {
-        "entry_id": {
-          "name": "Entry ID",
-          "description": "The config entry ID of the scheduler"
+        "config_entry": {
+          "name": "Scheduler",
+          "description": "The Nordpool Scheduler entry to clear"
         }
       }
     }

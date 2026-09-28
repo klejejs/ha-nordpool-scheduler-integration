@@ -1,506 +1,232 @@
-"""Tests for the Nordpool Scheduler integration."""
+"""Tests for Nordpool Scheduler setup, unload, migration and slot handling."""
 
-from homeassistant.core import HomeAssistant
+from __future__ import annotations
+
+from datetime import UTC, date, datetime
+from typing import TYPE_CHECKING
+
+from homeassistant.const import EVENT_CALL_SERVICE
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.nordpool_scheduler.const import DOMAIN
-from tests.conftest import get_schedule_key
+from custom_components.nordpool_scheduler import _async_apply_slot
+from custom_components.nordpool_scheduler.const import (
+    CONF_CONTROL_MODE,
+    CONF_TARGET_ENTITY,
+    CONTROL_MODE_ENFORCE,
+    DOMAIN,
+)
+
+from .conftest import setup_scheduler_entry as _setup
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
 
 
-async def test_setup_entry(
+async def test_setup_creates_entities(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
-    mock_aiohttp_session,
-    mock_switch,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
 ) -> None:
-    """Test setting up the integration."""
-    mock_config_entry.add_to_hass(hass)
+    """Setting up an entry creates the sensor, binary sensor and switch."""
+    await _setup(hass, mock_config_entry, nordpool_prices)
 
-    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
-    await hass.async_block_till_done()
-
-    # Check that the entry is loaded
     assert mock_config_entry.state.name == "LOADED"
 
-    # Check that data is stored
-    assert DOMAIN in hass.data
-    assert mock_config_entry.entry_id in hass.data[DOMAIN]
-
-    # Check that coordinator exists
-    assert "coordinator" in hass.data[DOMAIN]
-
-    # Check that entities are created
     entity_registry = er.async_get(hass)
     entries = er.async_entries_for_config_entry(
-        entity_registry,
-        mock_config_entry.entry_id,
+        entity_registry, mock_config_entry.entry_id
     )
-    # Should have both sensor and binary_sensor
-    assert len(entries) == 2
-    domains = {e.domain for e in entries}
-    assert "sensor" in domains
-    assert "binary_sensor" in domains
+    assert len(entries) == 3
 
 
 async def test_unload_entry(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
-    mock_aiohttp_session,
-    mock_switch,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
 ) -> None:
-    """Test unloading the integration."""
-    mock_config_entry.add_to_hass(hass)
-
-    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
-    await hass.async_block_till_done()
+    """Unloading stops updates and cleans up."""
+    await _setup(hass, mock_config_entry, nordpool_prices)
 
     assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
     await hass.async_block_till_done()
-
-    # Check that the entry is unloaded
     assert mock_config_entry.state.name == "NOT_LOADED"
 
-    # Check that data is removed
-    assert mock_config_entry.entry_id not in hass.data.get(DOMAIN, {})
 
-
-async def test_services_registered(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    mock_aiohttp_session,
-    mock_switch,
-) -> None:
-    """Test that services are registered."""
-    mock_config_entry.add_to_hass(hass)
-
-    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
-    await hass.async_block_till_done()
-
-    # Check that services are registered
-    assert hass.services.has_service(DOMAIN, "set_schedule")
-    assert hass.services.has_service(DOMAIN, "set_slot")
-    assert hass.services.has_service(DOMAIN, "clear_schedule")
-    assert hass.services.has_service(DOMAIN, "get_schedule")
-
-
-async def test_set_schedule_service(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    mock_aiohttp_session,
-    mock_switch,
-) -> None:
-    """Test the set_schedule service."""
-    mock_config_entry.add_to_hass(hass)
-
-    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
-    await hass.async_block_till_done()
-
-    # Get tomorrow's date for testing (to avoid past-time cleanup)
-    from datetime import datetime, timedelta
-    from zoneinfo import ZoneInfo
-
-    riga_tz = ZoneInfo("Europe/Riga")
-    tomorrow = (datetime.now(riga_tz).date() + timedelta(days=1)).isoformat()
-
-    # Set schedule for specific slots on tomorrow
-    await hass.services.async_call(
-        DOMAIN,
-        "set_schedule",
-        {
-            "entry_id": mock_config_entry.entry_id,
-            "date": tomorrow,
-            "slots": {
-                "0": True,
-                "4": True,
-                "8": False,
-            },
-        },
-        blocking=True,
-    )
-
-    # Check that schedule was updated (schedule is now date-based dict)
-    entry_data = hass.data[DOMAIN][mock_config_entry.entry_id]
-    assert entry_data["schedule"][get_schedule_key(0, days_ahead=1)] is True
-    assert entry_data["schedule"][get_schedule_key(4, days_ahead=1)] is True
-    assert entry_data["schedule"][get_schedule_key(8, days_ahead=1)] is False
-
-
-async def test_clear_schedule_service(
-    hass: HomeAssistant,
-    mock_config_entry: MockConfigEntry,
-    mock_aiohttp_session,
-    mock_switch,
-) -> None:
-    """Test the clear_schedule service."""
-    mock_config_entry.add_to_hass(hass)
-
-    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
-    await hass.async_block_till_done()
-
-    # Set some schedule first (schedule is now date-based dict) - use tomorrow's date
-    entry_data = hass.data[DOMAIN][mock_config_entry.entry_id]
-    entry_data["schedule"][get_schedule_key(0, days_ahead=1)] = True
-    entry_data["schedule"][get_schedule_key(4, days_ahead=1)] = True
-
-    # Clear schedule
-    await hass.services.async_call(
-        DOMAIN,
-        "clear_schedule",
-        {"entry_id": mock_config_entry.entry_id},
-        blocking=True,
-    )
-
-    # Check that schedule was cleared (should be empty dict)
-    assert entry_data["schedule"] == {}
-
-
-async def test_multiple_instances(
-    hass: HomeAssistant,
-    mock_aiohttp_session,
-) -> None:
-    """Test that multiple instances can be created."""
-    # Create first instance
-    hass.states.async_set("switch.test_switch_1", "off")
-    from custom_components.nordpool_scheduler.const import (
-        CONF_DEFAULT_STATE,
-        DEFAULT_STATE_OFF,
-    )
-
-    entry1 = MockConfigEntry(
+async def test_migrate_v1_entry_fails(hass: HomeAssistant) -> None:
+    """A pre-rewrite (CSV-based) entry can't be migrated automatically."""
+    old_entry = MockConfigEntry(
         domain=DOMAIN,
+        title="Nordpool Scheduler - Old",
         data={
-            "scheduler_name": "scheduler1",
-            "target_switch": "switch.test_switch_1",
-            CONF_DEFAULT_STATE: DEFAULT_STATE_OFF,
+            "scheduler_name": "Old",
+            "target_switch": "switch.old",
+            "default_state": "off",
         },
-        entry_id="entry1",
-        unique_id="scheduler1_switch.test_switch_1",
+        version=1,
     )
-    entry1.add_to_hass(hass)
+    old_entry.add_to_hass(hass)
 
-    # Set up first entry
-    result1 = await hass.config_entries.async_setup(entry1.entry_id)
+    assert not await hass.config_entries.async_setup(old_entry.entry_id)
     await hass.async_block_till_done()
-    assert result1
-
-    # Create second instance AFTER first is set up
-    hass.states.async_set("switch.test_switch_2", "off")
-    entry2 = MockConfigEntry(
-        domain=DOMAIN,
-        data={
-            "scheduler_name": "scheduler2",
-            "target_switch": "switch.test_switch_2",
-            CONF_DEFAULT_STATE: DEFAULT_STATE_OFF,
-        },
-        entry_id="entry2",
-        unique_id="scheduler2_switch.test_switch_2",
-    )
-    entry2.add_to_hass(hass)
-
-    # Set up second entry
-    result2 = await hass.config_entries.async_setup(entry2.entry_id)
-    await hass.async_block_till_done()
-    assert result2
-
-    # Check that both are loaded
-    assert entry1.entry_id in hass.data[DOMAIN]
-    assert entry2.entry_id in hass.data[DOMAIN]
-
-    # They should share the same coordinator
-    coordinator1 = hass.data[DOMAIN][entry1.entry_id]["coordinator"]
-    coordinator2 = hass.data[DOMAIN][entry2.entry_id]["coordinator"]
-    assert coordinator1 == coordinator2
+    assert old_entry.state.name == "MIGRATION_ERROR"
 
 
-async def test_set_slot_service(
+async def test_apply_slot_skips_when_target_unavailable(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
-    mock_aiohttp_session,
-    mock_switch,
+    mock_nordpool_service: None,
+    nordpool_prices: dict[date, list],
 ) -> None:
-    """Test the set_slot service."""
-    mock_config_entry.add_to_hass(hass)
+    """No service call is made while the target entity is unavailable."""
+    hass.states.async_set(mock_config_entry.data[CONF_TARGET_ENTITY], "unavailable")
+    await _setup(hass, mock_config_entry, nordpool_prices)
 
-    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    calls: list[dict] = []
+    hass.bus.async_listen(EVENT_CALL_SERVICE, lambda event: calls.append(event.data))
+    await _async_apply_slot(hass, mock_config_entry, datetime.now(UTC))
     await hass.async_block_till_done()
-
-    # Get tomorrow's date for testing
-    from datetime import datetime, timedelta
-    from zoneinfo import ZoneInfo
-
-    riga_tz = ZoneInfo("Europe/Riga")
-    tomorrow = (datetime.now(riga_tz).date() + timedelta(days=1)).isoformat()
-
-    # Set a single slot on tomorrow
-    await hass.services.async_call(
-        DOMAIN,
-        "set_slot",
-        {
-            "entry_id": mock_config_entry.entry_id,
-            "date": tomorrow,
-            "slot_index": 10,
-            "enabled": True,
-        },
-        blocking=True,
-    )
-
-    # Check that the slot was updated
-    entry_data = hass.data[DOMAIN][mock_config_entry.entry_id]
-    assert entry_data["schedule"][get_schedule_key(10, days_ahead=1)] is True
-
-    # Update the same slot to disabled
-    await hass.services.async_call(
-        DOMAIN,
-        "set_slot",
-        {
-            "entry_id": mock_config_entry.entry_id,
-            "date": tomorrow,
-            "slot_index": 10,
-            "enabled": False,
-        },
-        blocking=True,
-    )
-
-    # Check that the slot was updated
-    assert entry_data["schedule"][get_schedule_key(10, days_ahead=1)] is False
-
-    # Set multiple individual slots
-    await hass.services.async_call(
-        DOMAIN,
-        "set_slot",
-        {
-            "entry_id": mock_config_entry.entry_id,
-            "date": tomorrow,
-            "slot_index": 5,
-            "enabled": True,
-        },
-        blocking=True,
-    )
-
-    await hass.services.async_call(
-        DOMAIN,
-        "set_slot",
-        {
-            "entry_id": mock_config_entry.entry_id,
-            "date": tomorrow,
-            "slot_index": 15,
-            "enabled": False,
-        },
-        blocking=True,
-    )
-
-    # Check all slots
-    assert entry_data["schedule"][get_schedule_key(5, days_ahead=1)] is True
-    assert entry_data["schedule"][get_schedule_key(10, days_ahead=1)] is False
-    assert entry_data["schedule"][get_schedule_key(15, days_ahead=1)] is False
+    assert not calls
 
 
-async def test_get_schedule_service(
+async def test_on_change_mode_only_calls_on_transition(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
-    mock_aiohttp_session,
-    mock_switch,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
 ) -> None:
-    """Test the get_schedule service returns the schedule."""
-    mock_config_entry.add_to_hass(hass)
+    """In on_change mode, repeating the same desired state doesn't call the service."""
+    await _setup(hass, mock_config_entry, nordpool_prices)
+    entry = hass.config_entries.async_get_entry(mock_config_entry.entry_id)
+    runtime = entry.runtime_data
 
-    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    calls: list[str] = []
+    hass.services.async_register(
+        "input_boolean", "turn_on", lambda call: calls.append(call.service)
+    )
+
+    now = datetime.now(UTC)
+    runtime.schedule.set_slot(_slot_start(now), state=True)
+
+    await _async_apply_slot(hass, entry, now)
     await hass.async_block_till_done()
+    assert calls == ["turn_on"]
 
-    # Get tomorrow's date for testing
-    from datetime import datetime, timedelta
-    from zoneinfo import ZoneInfo
-
-    riga_tz = ZoneInfo("Europe/Riga")
-    tomorrow = (datetime.now(riga_tz).date() + timedelta(days=1)).isoformat()
-
-    # Set schedule for specific slots on tomorrow
-    await hass.services.async_call(
-        DOMAIN,
-        "set_schedule",
-        {
-            "entry_id": mock_config_entry.entry_id,
-            "date": tomorrow,
-            "slots": {
-                "0": True,
-                "4": True,
-                "8": False,
-                "12": True,
-            },
-        },
-        blocking=True,
-    )
-
-    # Get the schedule
-    response = await hass.services.async_call(
-        DOMAIN,
-        "get_schedule",
-        {"entry_id": mock_config_entry.entry_id},
-        blocking=True,
-        return_response=True,
-    )
-
-    # Check that the response contains the schedule (now grouped by date)
-    assert response is not None
-    assert "schedule" in response
-    schedule_by_date = response["schedule"]
-
-    assert tomorrow in schedule_by_date
-    schedule = schedule_by_date[tomorrow]
-    assert schedule[0] is True
-    assert schedule[4] is True
-    assert schedule[8] is False
-    assert schedule[12] is True
+    # Same slot, same desired state -> no repeat call in on_change mode.
+    await _async_apply_slot(hass, entry, now)
+    await hass.async_block_till_done()
+    assert calls == ["turn_on"]
 
 
-async def test_schedule_persistence(
+async def test_on_change_mode_retries_after_failed_call(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
-    mock_aiohttp_session,
-    mock_switch,
+    mock_nordpool_service: None,
+    nordpool_prices: dict[date, list],
 ) -> None:
-    """Test that schedule persists across integration reload."""
-    mock_config_entry.add_to_hass(hass)
+    """A failed service call doesn't mark the state as applied, so it retries.
 
-    # Set up the integration
-    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    Regression test: last_desired_state used to be updated before the
+    service call, so a failure (e.g. the target's turn_on service briefly
+    unavailable) permanently suppressed retries in on_change mode.
+    """
+    target_entity = mock_config_entry.data[CONF_TARGET_ENTITY]
+    hass.states.async_set(target_entity, "off")
+    await _setup(hass, mock_config_entry, nordpool_prices)
+    entry = hass.config_entries.async_get_entry(mock_config_entry.entry_id)
+    runtime = entry.runtime_data
+
+    now = datetime.now(UTC)
+    runtime.schedule.set_slot(_slot_start(now), state=True)
+
+    # input_boolean.turn_on isn't registered yet, so the call fails.
+    await _async_apply_slot(hass, entry, now)
     await hass.async_block_till_done()
+    assert runtime.last_desired_state is False
 
-    # Get tomorrow's date for testing
-    from datetime import datetime, timedelta
-    from zoneinfo import ZoneInfo
-
-    riga_tz = ZoneInfo("Europe/Riga")
-    tomorrow = (datetime.now(riga_tz).date() + timedelta(days=1)).isoformat()
-
-    # Set schedule for specific slots on tomorrow
-    await hass.services.async_call(
-        DOMAIN,
-        "set_schedule",
-        {
-            "entry_id": mock_config_entry.entry_id,
-            "date": tomorrow,
-            "slots": {
-                "10": True,
-                "20": False,
-                "30": True,
-            },
-        },
-        blocking=True,
+    calls: list[str] = []
+    hass.services.async_register(
+        "input_boolean", "turn_on", lambda call: calls.append(call.service)
     )
 
-    # Verify schedule is set
-    entry_data = hass.data[DOMAIN][mock_config_entry.entry_id]
-    assert entry_data["schedule"][get_schedule_key(10, days_ahead=1)] is True
-    assert entry_data["schedule"][get_schedule_key(20, days_ahead=1)] is False
-    assert entry_data["schedule"][get_schedule_key(30, days_ahead=1)] is True
-
-    # Unload the integration (simulating HA restart)
-    assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
+    # Same slot, same desired state, but the previous call never went through.
+    await _async_apply_slot(hass, entry, now)
     await hass.async_block_till_done()
-
-    # Reload the integration
-    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
-    await hass.async_block_till_done()
-
-    # Verify schedule was restored from persistence
-    entry_data = hass.data[DOMAIN][mock_config_entry.entry_id]
-    assert entry_data["schedule"][get_schedule_key(10, days_ahead=1)] is True
-    assert entry_data["schedule"][get_schedule_key(20, days_ahead=1)] is False
-    assert entry_data["schedule"][get_schedule_key(30, days_ahead=1)] is True
+    assert calls == ["turn_on"]
+    assert runtime.last_desired_state is True
 
 
-async def test_schedule_persistence_with_set_slot(
+async def test_enforce_mode_calls_every_slot(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
-    mock_aiohttp_session,
-    mock_switch,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
 ) -> None:
-    """Test that individual slot changes persist across integration reload."""
+    """In enforce mode, the service is called even if the state already matches."""
     mock_config_entry.add_to_hass(hass)
-
-    # Set up the integration
-    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
-    await hass.async_block_till_done()
-
-    # Get tomorrow's date for testing
-    from datetime import datetime, timedelta
-    from zoneinfo import ZoneInfo
-
-    riga_tz = ZoneInfo("Europe/Riga")
-    tomorrow = (datetime.now(riga_tz).date() + timedelta(days=1)).isoformat()
-
-    # Set individual slots on tomorrow
-    await hass.services.async_call(
-        DOMAIN,
-        "set_slot",
-        {
-            "entry_id": mock_config_entry.entry_id,
-            "date": tomorrow,
-            "slot_index": 45,
-            "enabled": True,
-        },
-        blocking=True,
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={CONF_CONTROL_MODE: CONTROL_MODE_ENFORCE}
     )
+    await _setup(hass, mock_config_entry, nordpool_prices)
+    entry = hass.config_entries.async_get_entry(mock_config_entry.entry_id)
+    runtime = entry.runtime_data
+    runtime.last_desired_state = False  # pretend a previous slot already ran
 
-    # Unload and reload
-    assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
+    now = datetime.now(UTC)
+    hass.states.async_set(mock_target, "off")
+
+    calls = []
+
+    async def _record(call) -> None:
+        calls.append(call.service)
+
+    hass.services.async_register("input_boolean", "turn_off", _record)
+    hass.services.async_register("input_boolean", "turn_on", _record)
+
+    await _async_apply_slot(hass, entry, now)
     await hass.async_block_till_done()
-    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
-    await hass.async_block_till_done()
-
-    # Verify slot was restored
-    entry_data = hass.data[DOMAIN][mock_config_entry.entry_id]
-    assert entry_data["schedule"][get_schedule_key(45, days_ahead=1)] is True
+    assert "turn_off" in calls
 
 
-async def test_schedule_persistence_clear(
+async def test_reload_mid_slot_keeps_current_override(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
-    mock_aiohttp_session,
-    mock_switch,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
 ) -> None:
-    """Test that clearing schedule persists across integration reload."""
-    mock_config_entry.add_to_hass(hass)
+    """A reload partway through a slot doesn't lose that slot's override.
 
-    # Set up the integration
-    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    Regression test: overrides used to be popped the moment their slot
+    started, so a reload before the next slot boundary reverted to default.
+    """
+    await _setup(hass, mock_config_entry, nordpool_prices)
+    entry = hass.config_entries.async_get_entry(mock_config_entry.entry_id)
+    now = datetime.now(UTC)
+    entry.runtime_data.schedule.set_slot(_slot_start(now), state=True)
+    await _async_apply_slot(hass, entry, now)
     await hass.async_block_till_done()
+    assert hass.states.get(mock_target).state == "on"
 
-    # Get tomorrow's date for testing
-    from datetime import datetime, timedelta
-    from zoneinfo import ZoneInfo
+    # Simulate a reload: fresh runtime, last_desired_state resets to None.
+    assert await hass.config_entries.async_reload(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+    entry = hass.config_entries.async_get_entry(mock_config_entry.entry_id)
 
-    riga_tz = ZoneInfo("Europe/Riga")
-    tomorrow = (datetime.now(riga_tz).date() + timedelta(days=1)).isoformat()
+    # The override for the still-current slot must have survived the reload.
+    assert entry.runtime_data.schedule.get(_slot_start(now)) is True
+    assert hass.states.get(mock_target).state == "on"
 
-    # Set a schedule on tomorrow
-    await hass.services.async_call(
-        DOMAIN,
-        "set_schedule",
-        {
-            "entry_id": mock_config_entry.entry_id,
-            "date": tomorrow,
-            "slots": {"5": True, "15": False},
-        },
-        blocking=True,
+
+def _slot_start(now: datetime) -> datetime:
+    from custom_components.nordpool_scheduler.util import (
+        slot_start_for,
     )
 
-    # Clear the schedule
-    await hass.services.async_call(
-        DOMAIN,
-        "clear_schedule",
-        {"entry_id": mock_config_entry.entry_id},
-        blocking=True,
-    )
-
-    # Unload and reload
-    assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
-    await hass.async_block_till_done()
-    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
-    await hass.async_block_till_done()
-
-    # Verify schedule is still empty after reload
-    entry_data = hass.data[DOMAIN][mock_config_entry.entry_id]
-    assert entry_data["schedule"] == {}
+    return slot_start_for(now)

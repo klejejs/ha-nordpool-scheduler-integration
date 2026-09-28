@@ -1,48 +1,52 @@
 """Constants for the Nordpool Scheduler integration."""
 
-from datetime import timedelta
 from typing import Final
 
 DOMAIN: Final = "nordpool_scheduler"
-NAME: Final = "Nordpool Scheduler"
 
-# Configuration
+# Config entry data / options keys
 CONF_SCHEDULER_NAME: Final = "scheduler_name"
-CONF_TARGET_SWITCH: Final = "target_switch"
+CONF_TARGET_ENTITY: Final = "target_entity"
 CONF_DEFAULT_STATE: Final = "default_state"
-CONF_SCHEDULE: Final = "schedule"  # Persisted schedule overrides
+CONF_NORDPOOL_ENTRY_ID: Final = "nordpool_config_entry_id"
+CONF_AREA: Final = "area"
+CONF_VAT_PERCENT: Final = "vat_percent"
+CONF_CONTROL_MODE: Final = "control_mode"
 
-# Supported entity domains (all support turn_on/turn_off)
+# Supported target domains (all support turn_on/turn_off)
 SUPPORTED_DOMAINS: Final = ["switch", "input_boolean", "light", "fan", "climate"]
 
-# Default state options
-DEFAULT_STATE_ON: Final = "on"
-DEFAULT_STATE_OFF: Final = "off"
+STATE_DEFAULT_OFF: Final = "off"
+STATE_DEFAULT_ON: Final = "on"
 
-# Data coordinator
-UPDATE_INTERVAL: Final = timedelta(minutes=5)  # Check every 5 minutes for price updates
+CONTROL_MODE_ON_CHANGE: Final = "on_change"
+CONTROL_MODE_ENFORCE: Final = "enforce"
+CONTROL_MODES: Final = [CONTROL_MODE_ON_CHANGE, CONTROL_MODE_ENFORCE]
 
-# Nordpool API
-NORDPOOL_CSV_URL: Final = "https://nordpool.didnt.work/nordpool-lv-excel.csv"
-VAT_MULTIPLIER: Final = 1.21  # 21% VAT
+SLOT_MINUTES: Final = 15
+DEFAULT_VAT_PERCENT: Final = 21
 
-# Time slots (96 slots for 24 hours * 4 quarters)
-SLOTS_PER_DAY: Final = 96
-MINUTES_PER_SLOT: Final = 15
-MAX_SCHEDULE_DAYS_AHEAD: Final = 1  # Allow scheduling today (0) and tomorrow (1)
+# The upstream Nord Pool integration we depend on for prices
+NORDPOOL_DOMAIN: Final = "nordpool"
+NORDPOOL_SERVICE_GET_PRICES_FOR_DATE: Final = "get_prices_for_date"
+NORDPOOL_TIMEZONE_NAME: Final = "Europe/Oslo"  # CET/CEST, used for publish scheduling
 
-# Services
-SERVICE_SET_SCHEDULE: Final = "set_schedule"
-SERVICE_SET_SLOT: Final = "set_slot"
+# Our services
+SERVICE_SET_SLOTS: Final = "set_slots"
 SERVICE_CLEAR_SCHEDULE: Final = "clear_schedule"
-SERVICE_GET_SCHEDULE: Final = "get_schedule"
 
-# Attributes
-ATTR_SCHEDULE: Final = "schedule"
-ATTR_ENTRY_ID: Final = "entry_id"
+ATTR_CONFIG_ENTRY: Final = "config_entry"
 ATTR_SLOTS: Final = "slots"
-ATTR_SLOT_INDEX: Final = "slot_index"
-ATTR_ENABLED: Final = "enabled"
-ATTR_DATE: Final = "date"  # Format: YYYY-MM-DD
-ATTR_PRICES: Final = "prices"
-ATTR_CURRENT_PRICE: Final = "current_price"
+ATTR_START: Final = "start"
+ATTR_STATE: Final = "state"
+
+SLOT_STATE_ON: Final = "on"
+SLOT_STATE_OFF: Final = "off"
+SLOT_STATE_DEFAULT: Final = "default"
+SLOT_STATES: Final = [SLOT_STATE_ON, SLOT_STATE_OFF, SLOT_STATE_DEFAULT]
+
+STORAGE_VERSION: Final = 1
+STORAGE_KEY_PREFIX: Final = f"{DOMAIN}.schedule"
+
+# How far back/forward of "now" a requested slot may be
+MAX_SLOT_LOOKAHEAD_DAYS: Final = 2
