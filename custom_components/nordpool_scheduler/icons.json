@@ -1,0 +1,17 @@
+{
+  "entity": {
+    "switch": {
+      "scheduler_enabled": {
+        "default": "mdi:calendar-clock"
+      }
+    }
+  },
+  "services": {
+    "set_slots": {
+      "service": "mdi:calendar-edit"
+    },
+    "clear_schedule": {
+      "service": "mdi:calendar-remove"
+    }
+  }
+}

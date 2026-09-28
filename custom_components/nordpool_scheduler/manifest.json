@@ -1,14 +1,12 @@
 {
   "domain": "nordpool_scheduler",
   "name": "Nordpool Scheduler",
-  "codeowners": [
-    "@klejejs"
-  ],
+  "codeowners": ["@klejejs"],
   "config_flow": true,
-  "documentation": "https://github.com/klejejs/nordpool-scheduler",
-  "iot_class": "cloud_polling",
-  "issue_tracker": "https://github.com/klejejs/nordpool-scheduler/issues",
+  "documentation": "https://github.com/klejejs/ha-nordpool-scheduler-integration",
+  "integration_type": "helper",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/klejejs/ha-nordpool-scheduler-integration/issues",
   "requirements": [],
-  "version": "1.0.0",
-  "dependencies": []
+  "version": "2.0.0"
 }

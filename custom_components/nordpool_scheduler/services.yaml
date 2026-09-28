@@ -1,87 +1,20 @@
-set_schedule:
-  name: Set Schedule
-  description: Set the schedule for specific time slots on a given date
+set_slots:
   fields:
-    entry_id:
-      name: Entry ID
-      description: The config entry ID of the scheduler
+    config_entry:
       required: true
-      example: "abc123def456"
       selector:
-        text:
+        config_entry:
+          integration: nordpool_scheduler
     slots:
-      name: Slots
-      description: Dictionary of slot indices (0-95) to boolean values indicating if the entity should be on
       required: true
-      example: '{"0": true, "4": true, "8": false}'
+      example: '[{"start": "2025-10-08T22:00:00+00:00", "state": "on"}]'
       selector:
         object:
-    date:
-      name: Date
-      description: Target date in YYYY-MM-DD format (defaults to today, can be today or tomorrow only)
-      required: false
-      example: "2025-10-08"
-      selector:
-        date:
-
-set_slot:
-  name: Set Slot
-  description: Set the schedule for a single time slot on a given date
-  fields:
-    entry_id:
-      name: Entry ID
-      description: The config entry ID of the scheduler
-      required: true
-      example: "abc123def456"
-      selector:
-        text:
-    slot_index:
-      name: Slot Index
-      description: The slot index (0-95, where each slot is 15 minutes, 0 = 00:00, 4 = 01:00, etc.)
-      required: true
-      example: 0
-      selector:
-        number:
-          min: 0
-          max: 95
-          mode: box
-    enabled:
-      name: Enabled
-      description: Whether the entity should be turned on during this slot
-      required: true
-      example: true
-      selector:
-        boolean:
-    date:
-      name: Date
-      description: Target date in YYYY-MM-DD format (defaults to today, can be today or tomorrow only)
-      required: false
-      example: "2025-10-08"
-      selector:
-        date:
 
 clear_schedule:
-  name: Clear Schedule
-  description: Clear all scheduled time slots
   fields:
-    entry_id:
-      name: Entry ID
-      description: The config entry ID of the scheduler
+    config_entry:
       required: true
-      example: "abc123def456"
       selector:
-        text:
-
-get_schedule:
-  name: Get Schedule
-  description: Get the current schedule for all time slots
-  fields:
-    entry_id:
-      name: Entry ID
-      description: The config entry ID of the scheduler
-      required: true
-      example: "abc123def456"
-      selector:
-        text:
-  response:
-    optional: false
+        config_entry:
+          integration: nordpool_scheduler

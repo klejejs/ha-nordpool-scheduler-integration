@@ -1,0 +1,144 @@
+"""Websocket API used by the Nordpool Scheduler Lovelace card.
+
+Rather than have the card poll or read stale entity attributes, it
+subscribes to a snapshot that is pushed again whenever prices refresh, the
+schedule changes, or a new slot starts.
+"""
+
+from __future__ import annotations
+
+from datetime import timedelta
+from typing import Any
+
+import voluptuous as vol
+from homeassistant.components import websocket_api
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.util import dt as dt_util
+
+from .const import (
+    CONF_CONTROL_MODE,
+    CONF_DEFAULT_STATE,
+    CONF_TARGET_ENTITY,
+    CONTROL_MODE_ON_CHANGE,
+    DOMAIN,
+    MAX_SLOT_LOOKAHEAD_DAYS,
+    SLOT_MINUTES,
+    SLOT_STATE_OFF,
+    SLOT_STATE_ON,
+    STATE_DEFAULT_OFF,
+    STATE_DEFAULT_ON,
+)
+from .util import local_midnight_today, slot_start_for
+
+
+@callback
+def async_setup_websocket_api(hass: HomeAssistant) -> None:
+    """Register the websocket commands."""
+    websocket_api.async_register_command(hass, ws_subscribe)
+
+
+def _entry_for_sensor(hass: HomeAssistant, entity_id: str) -> ConfigEntry | None:
+    """Find the scheduler config entry that owns a sensor/binary_sensor entity."""
+    registry_entry = er.async_get(hass).async_get(entity_id)
+    if registry_entry is None or registry_entry.platform != DOMAIN:
+        return None
+    if registry_entry.config_entry_id is None:
+        return None
+    return hass.config_entries.async_get_entry(registry_entry.config_entry_id)
+
+
+def _build_snapshot(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, Any]:
+    """Build the current schedule/price snapshot for one config entry."""
+    runtime = entry.runtime_data
+    coordinator = runtime.coordinator
+    settings = {**entry.data, **entry.options}
+    default_state = settings.get(CONF_DEFAULT_STATE, STATE_DEFAULT_OFF)
+    default_on = default_state == STATE_DEFAULT_ON
+    target_entity = settings[CONF_TARGET_ENTITY]
+
+    window_start = local_midnight_today(hass)
+    known_prices = coordinator.data or {}
+    window_end = window_start + timedelta(days=MAX_SLOT_LOOKAHEAD_DAYS)
+    if known_prices:
+        latest_known_end = max(known_prices) + timedelta(minutes=SLOT_MINUTES)
+        window_end = max(window_end, latest_known_end)
+
+    slots: list[dict[str, Any]] = []
+    cursor = window_start
+    while cursor < window_end:
+        override = runtime.schedule.get(cursor)
+        effective_on = default_on if override is None else override
+        slots.append(
+            {
+                "start": cursor.isoformat(),
+                "end": (cursor + timedelta(minutes=SLOT_MINUTES)).isoformat(),
+                "price": coordinator.get_price(cursor),
+                "override": (
+                    None
+                    if override is None
+                    else (SLOT_STATE_ON if override else SLOT_STATE_OFF)
+                ),
+                "effective": SLOT_STATE_ON if effective_on else SLOT_STATE_OFF,
+            }
+        )
+        cursor += timedelta(minutes=SLOT_MINUTES)
+
+    target_state = hass.states.get(target_entity)
+
+    return {
+        "config_entry_id": entry.entry_id,
+        "target_entity": target_entity,
+        "default_state": default_state,
+        "control_mode": settings.get(CONF_CONTROL_MODE, CONTROL_MODE_ON_CHANGE),
+        "time_zone": hass.config.time_zone,
+        "currency": coordinator.currency,
+        "vat_percent": coordinator.vat_percent,
+        "now_slot_start": slot_start_for(dt_util.utcnow()).isoformat(),
+        "target_state": target_state.state if target_state else None,
+        "slots": slots,
+    }
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "nordpool_scheduler/subscribe",
+        vol.Required("entity_id"): cv.entity_id,
+    }
+)
+@callback
+def ws_subscribe(
+    hass: HomeAssistant,
+    connection: websocket_api.ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Subscribe to schedule/price snapshots for one scheduler entity."""
+    entry = _entry_for_sensor(hass, msg["entity_id"])
+    if entry is None or entry.state is not ConfigEntryState.LOADED:
+        connection.send_error(
+            msg["id"], "not_found", "Unknown Nordpool Scheduler entity"
+        )
+        return
+
+    @callback
+    def send_snapshot(*_args: Any) -> None:
+        connection.send_message(
+            websocket_api.event_message(msg["id"], _build_snapshot(hass, entry))
+        )
+
+    runtime = entry.runtime_data
+    unsub_schedule = async_dispatcher_connect(
+        hass, runtime.update_signal, send_snapshot
+    )
+    unsub_coordinator = runtime.coordinator.async_add_listener(send_snapshot)
+
+    def unsubscribe() -> None:
+        unsub_schedule()
+        unsub_coordinator()
+
+    connection.subscriptions[msg["id"]] = unsubscribe
+    connection.send_result(msg["id"])
+    send_snapshot()
