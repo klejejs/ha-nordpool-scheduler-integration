@@ -123,6 +123,44 @@ async def test_on_change_mode_only_calls_on_transition(
     assert calls == ["turn_on"]
 
 
+async def test_on_change_mode_retries_after_failed_call(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """A failed service call doesn't mark the state as applied, so it retries.
+
+    Regression test: last_desired_state used to be updated before the
+    service call, so a failure (e.g. the target's turn_on service briefly
+    unavailable) permanently suppressed retries in on_change mode.
+    """
+    target_entity = mock_config_entry.data[CONF_TARGET_ENTITY]
+    hass.states.async_set(target_entity, "off")
+    await _setup(hass, mock_config_entry, nordpool_prices)
+    entry = hass.config_entries.async_get_entry(mock_config_entry.entry_id)
+    runtime = entry.runtime_data
+
+    now = datetime.now(UTC)
+    runtime.schedule.set_slot(_slot_start(now), state=True)
+
+    # input_boolean.turn_on isn't registered yet, so the call fails.
+    await _async_apply_slot(hass, entry, now)
+    await hass.async_block_till_done()
+    assert runtime.last_desired_state is False
+
+    calls: list[str] = []
+    hass.services.async_register(
+        "input_boolean", "turn_on", lambda call: calls.append(call.service)
+    )
+
+    # Same slot, same desired state, but the previous call never went through.
+    await _async_apply_slot(hass, entry, now)
+    await hass.async_block_till_done()
+    assert calls == ["turn_on"]
+    assert runtime.last_desired_state is True
+
+
 async def test_enforce_mode_calls_every_slot(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,

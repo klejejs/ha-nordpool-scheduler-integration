@@ -71,7 +71,8 @@ class NordpoolSchedulerScheduledOnSensor(BinarySensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return the state attributes."""
-        target_entity = self._entry.data[CONF_TARGET_ENTITY]
+        settings = {**self._entry.data, **self._entry.options}
+        target_entity = settings[CONF_TARGET_ENTITY]
         target_state = self.hass.states.get(target_entity)
         return {
             "target_entity": target_entity,

@@ -170,9 +170,19 @@ class NordpoolSchedulerOptionsFlowHandler(config_entries.OptionsFlowWithReload):
         current = {**self.config_entry.data, **self.config_entry.options}
 
         if user_input is not None:
-            if not self.hass.states.get(user_input[CONF_TARGET_ENTITY]):
+            target_entity = user_input[CONF_TARGET_ENTITY]
+            if not self.hass.states.get(target_entity):
                 errors["base"] = "invalid_target"
+            elif any(
+                entry.unique_id == target_entity
+                for entry in self.hass.config_entries.async_entries(DOMAIN)
+                if entry.entry_id != self.config_entry.entry_id
+            ):
+                errors["base"] = "already_configured"
             else:
+                self.hass.config_entries.async_update_entry(
+                    self.config_entry, unique_id=target_entity
+                )
                 return self.async_create_entry(data=user_input)
 
         data_schema = vol.Schema(

@@ -53,7 +53,8 @@
       }
     },
     "error": {
-      "invalid_target": "The selected entity does not exist"
+      "invalid_target": "The selected entity does not exist",
+      "already_configured": "This entity already has a scheduler"
     }
   },
   "entity": {

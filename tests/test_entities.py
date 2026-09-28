@@ -9,7 +9,10 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
 from custom_components.nordpool_scheduler import _async_apply_slot
-from custom_components.nordpool_scheduler.const import CONF_DEFAULT_STATE
+from custom_components.nordpool_scheduler.const import (
+    CONF_DEFAULT_STATE,
+    CONF_TARGET_ENTITY,
+)
 from custom_components.nordpool_scheduler.util import slot_start_for
 
 from .conftest import OSLO_TZ, hourly_day_prices
@@ -73,6 +76,34 @@ async def test_scheduled_on_binary_sensor_tracks_default_on(
     await hass.async_block_till_done()
 
     assert hass.states.get(SCHEDULED_ON).state == "on"
+
+
+async def test_scheduled_on_binary_sensor_reports_retargeted_entity(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """The target_entity attribute follows an options-flow retarget.
+
+    Regression test: it used to read entry.data directly, so it kept
+    reporting the old target and its state after the options flow moved
+    control to a new entity.
+    """
+    await _setup(hass, mock_config_entry, nordpool_prices)
+
+    new_target = "input_boolean.new_target"
+    hass.states.async_set(new_target, "on")
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={CONF_TARGET_ENTITY: new_target}
+    )
+    assert await hass.config_entries.async_reload(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get(SCHEDULED_ON)
+    assert state.attributes["target_entity"] == new_target
+    assert state.attributes["target_state"] == "on"
 
 
 async def test_device_info_shared_across_entities(

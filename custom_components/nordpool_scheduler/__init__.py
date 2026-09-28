@@ -190,9 +190,10 @@ async def _async_apply_slot(
             control_mode == CONTROL_MODE_ENFORCE
             or runtime.last_desired_state != desired_on
         )
-    runtime.last_desired_state = desired_on
 
-    if should_call:
+    if not should_call:
+        runtime.last_desired_state = desired_on
+    else:
         domain = target_entity.split(".")[0]
         try:
             await hass.services.async_call(
@@ -202,11 +203,14 @@ async def _async_apply_slot(
             )
         except HomeAssistantError as err:
             # A failed call here must not fail entry setup, or abort a
-            # 15-minute tick shared with other listeners.
+            # 15-minute tick shared with other listeners. Leave the marker
+            # unset so on_change mode retries on the next tick instead of
+            # believing this state was already applied.
             _LOGGER.warning(
                 "Could not set %s to %s: %s", target_entity, desired_on, err
             )
         else:
+            runtime.last_desired_state = desired_on
             _LOGGER.debug(
                 "%s: slot %s -> %s", entry.title, slot_start.isoformat(), desired_on
             )

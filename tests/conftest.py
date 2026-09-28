@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
+from unittest.mock import AsyncMock, patch
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -14,6 +15,7 @@ from homeassistant.core import (
     SupportsResponse,
 )
 from homeassistant.exceptions import ServiceValidationError
+from pynordpool import DeliveryPeriodsData
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.nordpool_scheduler.const import (
@@ -69,6 +71,34 @@ def nordpool_prices() -> dict[date, list[dict[str, Any]]]:
 @pytest.fixture(autouse=True)
 def auto_enable_custom_integrations(enable_custom_integrations: Any) -> None:
     """Enable custom integrations for all tests."""
+
+
+@pytest.fixture(autouse=True)
+def _stub_real_nordpool_component() -> Generator[None]:
+    """Keep the real ``nordpool`` component's own setup network-free.
+
+    ``nordpool_scheduler`` declares ``nordpool`` as a manifest dependency,
+    so Home Assistant sets up ``mock_nordpool_entry`` for real when a test
+    sets up a scheduler entry. Without this, its coordinator tries to reach
+    Nord Pool's real API and never leaves ConfigEntryNotReady in a
+    sandboxed test environment, and its own ``async_setup_services`` would
+    re-register (and overwrite) the fake ``get_prices_for_date`` handler
+    ``mock_nordpool_service`` below provides.
+    """
+    with (
+        patch(
+            "homeassistant.components.nordpool.coordinator."
+            "NordPoolDataUpdateCoordinator._async_setup",
+            AsyncMock(return_value=None),
+        ),
+        patch(
+            "homeassistant.components.nordpool.coordinator."
+            "NordPoolDataUpdateCoordinator._async_update_data",
+            AsyncMock(return_value=DeliveryPeriodsData(raw={}, entries={})),
+        ),
+        patch("homeassistant.components.nordpool.async_setup_services"),
+    ):
+        yield
 
 
 @pytest.fixture

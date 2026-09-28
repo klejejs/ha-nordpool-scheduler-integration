@@ -3,6 +3,7 @@
   "name": "Nordpool Scheduler",
   "codeowners": ["@klejejs"],
   "config_flow": true,
+  "dependencies": ["nordpool"],
   "documentation": "https://github.com/klejejs/ha-nordpool-scheduler-integration",
   "integration_type": "helper",
   "iot_class": "calculated",
