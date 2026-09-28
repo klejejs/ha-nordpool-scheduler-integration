@@ -192,12 +192,18 @@ class NordpoolSchedulerPriceCoordinator(DataUpdateCoordinator[dict[datetime, flo
         day_prices: dict[datetime, float] = {}
         for entry in area_entries:
             start = dt_util.parse_datetime(entry["start"])
-            if start is None:
+            end = dt_util.parse_datetime(entry["end"])
+            if start is None or end is None:
                 continue
-            price_per_mwh = entry["price"]
-            day_prices[dt_util.as_utc(start)] = round(
-                price_per_mwh / 1000 * vat_multiplier, 5
-            )
+            price = round(entry["price"] / 1000 * vat_multiplier, 5)
+            # Nord Pool's delivery periods aren't guaranteed to be 15 minutes
+            # (an hourly market reports one entry per hour); fan each entry
+            # out over every scheduler slot it actually covers.
+            slot_start = dt_util.as_utc(start)
+            slot_end = dt_util.as_utc(end)
+            while slot_start < slot_end:
+                day_prices[slot_start] = price
+                slot_start += timedelta(minutes=SLOT_MINUTES)
         return day_prices
 
     def get_price(self, slot_start: datetime) -> float | None:

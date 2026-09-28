@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING
 
 import pytest
@@ -116,6 +116,42 @@ async def test_dst_days_are_keyed_by_utc_timestamp(
     day_prices = await coordinator._async_fetch_day(today)
 
     assert len(day_prices) == expected_slots
+
+
+async def test_hourly_resolution_prices_cover_all_four_slots(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """An hourly-resolution response still prices every 15-minute slot.
+
+    Regression test: Nord Pool's DayAheadPrices endpoint can report one
+    entry per hour rather than per 15-minute slot; each entry must be
+    fanned out over all four scheduler slots it covers, not just its own
+    start time.
+    """
+    today = datetime.now(OSLO_TZ).date()
+    day_start = datetime.combine(today, datetime.min.time(), tzinfo=OSLO_TZ)
+    nordpool_prices[today] = [
+        {
+            "start": (day_start + timedelta(hours=h)).isoformat(),
+            "end": (day_start + timedelta(hours=h + 1)).isoformat(),
+            "price": 10.0 + h,
+        }
+        for h in range(24)
+    ]
+
+    coordinator = await _build_coordinator(hass, mock_config_entry, nordpool_prices)
+    day_prices = await coordinator._async_fetch_day(today)
+
+    assert len(day_prices) == 96
+    hour_start_utc = day_start.astimezone(UTC)
+    prices_at = [
+        day_prices.get(hour_start_utc + timedelta(minutes=m)) for m in (0, 15, 30, 45)
+    ]
+    assert all(price is not None for price in prices_at)
+    assert len(set(prices_at)) == 1
 
 
 async def test_vat_percent_from_options(
