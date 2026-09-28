@@ -93,7 +93,7 @@
         },
         "slots": {
           "name": "Slots",
-          "description": "A list of {start, state} objects, where start is an ISO 8601 timestamp aligned to a 15-minute boundary and state is 'on', 'off', or 'default'"
+          "description": "A list of objects with a 'start' ISO 8601 timestamp aligned to a 15-minute boundary and a 'state' of 'on', 'off', or 'default'"
         }
       }
     },
