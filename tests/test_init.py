@@ -6,10 +6,12 @@ from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING
 
 from homeassistant.const import EVENT_CALL_SERVICE
+from homeassistant.core import DOMAIN as HOMEASSISTANT_DOMAIN
 from homeassistant.helpers import entity_registry as er
+from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.nordpool_scheduler import _async_apply_slot
+from custom_components.nordpool_scheduler import CONFIG_SCHEMA, _async_apply_slot
 from custom_components.nordpool_scheduler.const import (
     CONF_CONTROL_MODE,
     CONF_TARGET_ENTITY,
@@ -21,6 +23,7 @@ from .conftest import setup_scheduler_entry as _setup
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
+    from homeassistant.helpers import issue_registry as ir
 
 
 async def test_setup_creates_entities(
@@ -74,6 +77,28 @@ async def test_migrate_v1_entry_fails(hass: HomeAssistant) -> None:
     assert not await hass.config_entries.async_setup(old_entry.entry_id)
     await hass.async_block_till_done()
     assert old_entry.state.name == "MIGRATION_ERROR"
+
+
+def test_config_schema_allows_empty_config() -> None:
+    """An empty config (no YAML section for this domain) validates as-is."""
+    assert CONFIG_SCHEMA({}) == {}
+
+
+async def test_config_schema_rejects_yaml_domain_config(
+    hass: HomeAssistant, issue_registry: ir.IssueRegistry
+) -> None:
+    """A YAML config entry for this domain is flagged as unsupported.
+
+    Regression test: this integration only supports the config entry
+    flow, so a stray YAML section must raise a repair issue instead of
+    being silently accepted.
+    """
+    assert await async_setup_component(hass, DOMAIN, {DOMAIN: {}})
+    await hass.async_block_till_done()
+
+    assert issue_registry.async_get_issue(
+        HOMEASSISTANT_DOMAIN, f"config_entry_only_{DOMAIN}"
+    )
 
 
 async def test_apply_slot_skips_when_target_unavailable(
