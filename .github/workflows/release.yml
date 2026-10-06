@@ -1,0 +1,35 @@
+name: Release
+
+on:
+  release:
+    types:
+      - published
+
+permissions: {}
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+
+      - name: Set the manifest version from the release tag
+        env:
+          VERSION: ${{ github.event.release.tag_name }}
+        run: |
+          manifest=custom_components/nordpool_scheduler/manifest.json
+          jq --arg version "${VERSION#v}" '.version = $version' "$manifest" > "$manifest.tmp"
+          mv "$manifest.tmp" "$manifest"
+
+      - name: Zip the integration
+        working-directory: custom_components/nordpool_scheduler
+        run: zip -r "$GITHUB_WORKSPACE/nordpool_scheduler.zip" . -x '__pycache__/*'
+
+      - name: Attach the zip to the release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          files: nordpool_scheduler.zip

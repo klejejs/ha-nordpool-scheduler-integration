@@ -1,0 +1,35 @@
+name-template: '$RESOLVED_VERSION'
+tag-template: '$RESOLVED_VERSION'
+autolabeler:
+  - labels: ['dependencies']
+    stop-on-match: true
+    branch:
+      - '/^renovate\//'
+  - labels: ['bug']
+    title:
+      - '/^fix\b/i'
+  - labels: ['feature']
+    fallback: true
+categories:
+  - title: 'Features'
+  - title: 'Bug fixes'
+    exclusive: true
+    when:
+      label: bug
+  - title: 'Dependencies'
+    when:
+      label: dependencies
+  - type: version-resolver
+    semver-increment: minor
+  - type: version-resolver
+    semver-increment: major
+    when:
+      label: major
+change-template: '* $TITLE by $AUTHORS in $URL'
+change-title-escapes: '\<*_&'
+category-template: '### $TITLE'
+template: |
+  ## What's Changed
+  $CHANGES
+
+  **Full Changelog**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...$RESOLVED_TAG
