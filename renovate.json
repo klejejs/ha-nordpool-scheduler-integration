@@ -1,0 +1,18 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "minimumReleaseAge": "2 days",
+  "rangeStrategy": "pin",
+  "packageRules": [
+    {
+      "description": "Home Assistant must match the homeassistant key in hacs.json, and the test harness is released in lockstep with it",
+      "matchPackageNames": ["homeassistant", "pytest-homeassistant-custom-component"],
+      "enabled": false
+    },
+    {
+      "description": "pytest-homeassistant-custom-component pins these exactly, so pinning them here as well would conflict with it",
+      "matchFileNames": ["requirements_test.txt"],
+      "rangeStrategy": "replace"
+    }
+  ]
+}
