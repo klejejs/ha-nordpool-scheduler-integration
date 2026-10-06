@@ -1,249 +1,158 @@
-# Nordpool Scheduler Integration for Home Assistant
+# Nordpool Scheduler
 
-> **Note:** This project is entirely vibe coded and written by AI. 🤖✨
+[![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz/docs/faq/custom_repositories/)
+[![GitHub Release](https://img.shields.io/github/v/release/klejejs/ha-nordpool-scheduler-integration)](https://github.com/klejejs/ha-nordpool-scheduler-integration/releases)
+[![Validate](https://github.com/klejejs/ha-nordpool-scheduler-integration/actions/workflows/validate.yml/badge.svg)](https://github.com/klejejs/ha-nordpool-scheduler-integration/actions/workflows/validate.yml)
+[![Lint](https://github.com/klejejs/ha-nordpool-scheduler-integration/actions/workflows/lint.yml/badge.svg)](https://github.com/klejejs/ha-nordpool-scheduler-integration/actions/workflows/lint.yml)
+[![License](https://img.shields.io/github/license/klejejs/ha-nordpool-scheduler-integration)](LICENSE)
 
-A custom Home Assistant integration that automatically schedules entity operations based on Nordpool electricity prices. This integration fetches real-time electricity prices and provides a scheduling system to control switches, lights, fans, climate devices, and template toggles during specific time slots.
+A Home Assistant integration that turns an entity on or off in 15-minute slots, priced by Nord Pool. Each scheduler has a default state (on or off) and a list of slot overrides. At every quarter hour it applies whichever one covers the current slot.
 
-## Features
+Prices come from Home Assistant's built-in [Nord Pool integration](https://www.home-assistant.io/integrations/nordpool/), so there's no extra account or API key.
 
-- **Real-time Price Fetching**: Automatically fetches Nordpool electricity prices from CSV feed
-- **Price Sensor**: Provides a sensor with current electricity price and all prices for today/tomorrow
-- **Internal Scheduling**: Manages 96 internal time slots (15-minute intervals for 24 hours)
-- **Multiple Entity Types**: Supports switches, input_boolean (template toggles), lights, fans, and climate devices
-- **Multiple Instances**: Support for multiple schedulers with different target entities
-- **Service Calls**: Programmatic control via Home Assistant services
-- **Price Statistics**: Automatically calculates min, max, and average prices
+Pair it with the [Nordpool Scheduler Card](https://github.com/klejejs/ha-nordpool-scheduler-card) to see the prices and click slots on and off from a dashboard.
+
+## Requirements
+
+- Home Assistant 2025.10.1 or newer
+- The [Nord Pool integration](https://www.home-assistant.io/integrations/nordpool/), set up with the area you buy electricity in
 
 ## Installation
 
-### HACS (Recommended)
+### HACS
 
-1. Add this repository to HACS as a custom repository
-2. Search for "Nordpool Scheduler" in HACS
-3. Click "Install"
-4. Restart Home Assistant
+[![Open your Home Assistant instance and open this repository in HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=klejejs&repository=ha-nordpool-scheduler-integration&category=integration)
 
-### Manual Installation
+Or by hand:
 
-1. Copy the `custom_components/nordpool_scheduler` directory to your Home Assistant's `custom_components` directory
+1. HACS → the three-dot menu → **Custom repositories**
+2. Add `https://github.com/klejejs/ha-nordpool-scheduler-integration` with the category **Integration**
+3. Install **Nordpool Scheduler** and restart Home Assistant
+
+### Manual
+
+1. Copy `custom_components/nordpool_scheduler` into your Home Assistant `custom_components` directory
 2. Restart Home Assistant
 
 ## Configuration
 
-The integration is configured through the Home Assistant UI:
+Go to **Settings** → **Devices & services** → **Add integration** → **Nordpool Scheduler**, then fill in:
 
-1. Go to **Settings** → **Devices & Services**
-2. Click **+ Add Integration**
-3. Search for "Nordpool Scheduler"
-4. Enter:
-   - **Scheduler Name**: A friendly name for this scheduler instance
-   - **Target Entity**: The entity to control (supports: switch, input_boolean, light, fan, climate)
-   - **Default State**: Choose the default behavior:
-     - **Default OFF**: Entity is OFF by default, turns ON only when scheduled
-     - **Default ON**: Entity is ON by default, turns OFF only when scheduled
+| Field | Description |
+|---|---|
+| Scheduler name | A name for this scheduler, used in its entity IDs |
+| Target entity | The entity to control: a `switch`, `input_boolean`, `light`, `fan` or `climate` |
+| Default state | What the entity does in a slot with no override: **Default OFF** or **Default ON** |
+| Nord Pool source | The Nord Pool integration entry to take prices from |
+| Area | Asked only when the Nord Pool entry covers more than one area |
 
-You can add multiple instances of the integration to control different entities.
+Add one scheduler per entity. An entity can only have one scheduler.
 
-## Usage
+**Configure** on an existing scheduler changes:
 
-### Sensor
+| Option | Default | Description |
+|---|---|---|
+| Target entity | | The entity to control |
+| Default state | Default OFF | The state for slots with no override |
+| Manual toggles | Only act when the schedule changes | **Only act when the schedule changes** leaves an entity you toggled by hand alone until the schedule wants something different. **Enforce every 15 minutes** re-applies the schedule at every slot. |
+| VAT percentage | 21 | Added on top of the Nord Pool price |
 
-After setup, a sensor entity will be created:
-- **Entity ID**: `sensor.<scheduler_name>_electricity_price`
-- **State**: Current electricity price (EUR/kWh)
-- **Attributes**:
-  - `prices`: Array of 192 price values (today + tomorrow, 15-minute intervals)
-  - `current_slot`: Current time slot index (0-95)
-  - `min_price`: Minimum price in the dataset
-  - `max_price`: Maximum price in the dataset
-  - `avg_price`: Average price in the dataset
-  - `entry_id`: Config entry ID for service calls
-  - `scheduler_name`: Name of the scheduler
-  - `default_state`: Configured default state (`on` or `off`)
-  - `target_entity_state`: Current state of the target entity (e.g., `on`, `off`, `unavailable`)
-  - `scheduled_overrides`: List of explicitly scheduled time slots with their states
-  - `scheduled_overrides_count`: Number of scheduled override slots
+## Entities
 
-### Services
+Each scheduler creates one device with three entities. For a scheduler named "Boiler":
 
-The integration provides three services for programmatic control:
+| Entity | Description |
+|---|---|
+| `sensor.nordpool_scheduler_boiler_electricity_price` | The current slot's price in your Nord Pool currency per kWh, VAT included. Attributes: `area`, `vat_percent`. |
+| `binary_sensor.nordpool_scheduler_boiler_scheduled_on` | On when the schedule wants the target on for the current slot. Attributes: `target_entity`, `target_state`. |
+| `switch.nordpool_scheduler_boiler_scheduler_enabled` | Turn it off to pause the scheduler. The target is left as it is until you turn the switch back on. |
 
-#### `nordpool_scheduler.set_schedule`
+## How it works
 
-Set the schedule for specific time slots. These schedules **override** the default state.
+- The day is split into 15-minute slots. A slot is either overridden **on**, overridden **off**, or follows the **default** state.
+- At 00, 15, 30 and 45 past each hour the scheduler works out what the current slot wants and turns the target on or off.
+- With **Only act when the schedule changes**, it only calls `turn_on` or `turn_off` when the wanted state differs from the previous slot's.
+- After a restart or reload it only acts if the target disagrees with the current slot, so a reload mid-slot doesn't undo a manual change.
+- A target that is `unavailable` or `unknown` is skipped for that slot.
+- Overrides are stored on disk and survive restarts. Overrides for slots that have ended are removed.
+- Prices are refreshed every hour, and again just after 13:00 CET when Nord Pool usually publishes the next day. Areas still on hourly prices have each hour's price copied to its four slots.
 
-**Service Data:**
+## Actions
+
+### `nordpool_scheduler.set_slots`
+
+Sets one or more slots to `on`, `off` or `default`. `default` removes the override. Each `start` must fall on a 15-minute boundary and lie between the current slot and two days ahead.
+
 ```yaml
-entry_id: "your_entry_id"  # Found in sensor attributes
-slots:
-  "0": true    # Slot 0 (00:00) - explicitly turn ON
-  "4": true    # Slot 4 (01:00) - explicitly turn ON
-  "8": false   # Slot 8 (02:00) - explicitly turn OFF
-  "32": true   # Slot 32 (08:00) - explicitly turn ON
-  # Unscheduled slots will use the configured default state
-```
-
-**Example:**
-```yaml
-service: nordpool_scheduler.set_schedule
+action: nordpool_scheduler.set_slots
 data:
-  entry_id: "abc123def456"
+  config_entry: 01JABCDEF0123456789ABCDEFG
   slots:
-    "0": true
-    "20": true
-    "40": false
+    - start: "2026-10-07T02:00:00+03:00"
+      state: "on"
+    - start: "2026-10-07T02:15:00+03:00"
+      state: "on"
+    - start: "2026-10-07T18:00:00+03:00"
+      state: "default"
 ```
 
-#### `nordpool_scheduler.clear_schedule`
+### `nordpool_scheduler.clear_schedule`
 
-Clear all scheduled time slots. After clearing, all slots will use the configured default state.
+Removes every override, so every slot follows the default state.
 
-**Service Data:**
 ```yaml
-entry_id: "your_entry_id"
-```
-
-**Example:**
-```yaml
-service: nordpool_scheduler.clear_schedule
+action: nordpool_scheduler.clear_schedule
 data:
-  entry_id: "abc123def456"
+  config_entry: 01JABCDEF0123456789ABCDEFG
 ```
 
-#### `nordpool_scheduler.get_schedule`
+`config_entry` is the scheduler's config entry ID. Pick the scheduler from the dropdown in the action editor and switch to YAML to see it.
 
-Get the current schedule (returns schedule state).
+## Example: run in tomorrow's cheapest two hours
 
-**Service Data:**
-```yaml
-entry_id: "your_entry_id"
-```
-
-### Time Slots
-
-The day is divided into 96 time slots (15-minute intervals):
-- Slot 0 = 00:00
-- Slot 1 = 00:15
-- Slot 2 = 00:30
-- Slot 3 = 00:45
-- Slot 4 = 01:00
-- ...
-- Slot 95 = 23:45
-
-To calculate a slot index: `slot_index = hour * 4 + (minute // 15)`
-
-### Automation Behavior
-
-The integration operates based on the **default state** you configured:
-
-#### Default OFF Mode (Traditional Behavior)
-- Unscheduled slots: Entity is OFF
-- Schedule slot as `true`: Entity turns ON
-- Schedule slot as `false`: Entity turns OFF
-
-#### Default ON Mode (Inverted Behavior)
-- Unscheduled slots: Entity is ON
-- Schedule slot as `true`: Entity turns ON
-- Schedule slot as `false`: Entity turns OFF
-
-**Key Features:**
-- At each 15-minute mark, the integration checks if a schedule override exists for that slot
-- If scheduled, it uses the scheduled state
-- If not scheduled, it uses the configured default state
-- After triggering, the previous slot's schedule is automatically cleared to allow re-scheduling
-- Works with all supported entity types: switches, input_boolean, lights, fans, and climate devices
-
-## Example Automations
-
-### Turn on during cheapest hours
+This uses the Nord Pool integration's own `get_prices_for_date` action to read tomorrow's prices, then switches on the eight cheapest slots. Replace the two config entry IDs and the area with your own.
 
 ```yaml
 automation:
-  - alias: "Schedule heating during cheap hours"
-    trigger:
-      - platform: time
-        at: "14:00:00"  # When tomorrow's prices are available
-    action:
-      - service: nordpool_scheduler.clear_schedule
+  - alias: "Boiler: schedule the cheapest slots tomorrow"
+    triggers:
+      - trigger: time
+        at: "14:00:00"
+    actions:
+      - action: nordpool.get_prices_for_date
         data:
-          entry_id: !secret scheduler_entry_id
-      - service: nordpool_scheduler.set_schedule
+          config_entry: YOUR_NORDPOOL_ENTRY_ID
+          date: "{{ (now() + timedelta(days=1)).date() }}"
+          areas: LV
+        response_variable: prices
+      - action: nordpool_scheduler.set_slots
         data:
-          entry_id: !secret scheduler_entry_id
+          config_entry: YOUR_SCHEDULER_ENTRY_ID
           slots: >
-            {% set prices = state_attr('sensor.heater_scheduler_electricity_price', 'prices') %}
-            {% set sorted_indices = range(96) | list |
-               sort(attribute=prices.__getitem__) %}
-            {% set cheapest_slots = sorted_indices[:8] %}  # 8 cheapest slots = 2 hours
-            {{ dict.fromkeys(cheapest_slots | map('string'), true) }}
+            {% set ns = namespace(slots=[]) %}
+            {% for p in (prices.LV | sort(attribute='price'))[:8] %}
+              {% set ns.slots = ns.slots + [{"start": p.start, "state": "on"}] %}
+            {% endfor %}
+            {{ ns.slots }}
 ```
 
-### Manual override in Lovelace
+## Upgrading from 1.x
 
-Create buttons to toggle specific time slots using the service calls above.
-
-## Future Frontend Component
-
-This integration is designed to work with a future custom frontend component that will provide:
-- Visual time slot selection interface
-- Price visualization graph
-- Easy schedule management
-- Quick preset selection
-
-The backend (this integration) is fully functional and ready for frontend integration.
-
-## Data Source
-
-Electricity prices are fetched from: `https://nordpool.didnt.work/nordpool-lv-excel.csv`
-
-**Important Notes:**
-- CSV prices are in EUR/kWh **without VAT**
-- The integration automatically adds 21% VAT to all prices
-- **CSV timestamps are in Europe/Riga (Latvia) timezone** and are automatically converted to UTC
-- This ensures correct price matching regardless of your Home Assistant timezone settings
-
-### Acknowledgments
-
-Special thanks to the creator and maintainer of **[nordpool.didnt.work](https://nordpool.didnt.work)** for providing the free Nordpool electricity price data API that makes this integration possible! 🙏
+Version 1 read prices from a CSV feed rather than the Nord Pool integration, and its schedulers can't be migrated automatically. After upgrading, set up the Nord Pool integration, then remove each old scheduler and add it again.
 
 ## Development
 
-### Running Tests
+The repository includes a dev container with Python 3.13.
 
 ```bash
-# Install test dependencies
-pip install -r requirements_test.txt
-
-# Run tests
-pytest
-
-# Run tests with coverage
-pytest --cov=custom_components.nordpool_scheduler --cov-report=html
+scripts/setup     # install requirements
+scripts/develop   # run Home Assistant on :8123 with ./config and this integration loaded
+scripts/lint      # ruff format and ruff check --fix
+scripts/test      # install test requirements, lint and run pytest
 ```
 
-### Project Structure
-
-```
-custom_components/nordpool_scheduler/
-├── __init__.py          # Integration setup and scheduling logic
-├── config_flow.py       # Configuration flow
-├── const.py             # Constants
-├── coordinator.py       # Data fetching coordinator
-├── sensor.py            # Price sensor
-├── manifest.json        # Integration metadata
-├── services.yaml        # Service definitions
-└── translations/
-    └── en.json          # English translations
-```
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to submit changes.
 
 ## License
 
-This project is licensed under the MIT License.
-
-## Support
-
-For issues, questions, or feature requests, please use the GitHub issue tracker.
+MIT, see [LICENSE](LICENSE). Started from ludeeus's [integration_blueprint](https://github.com/ludeeus/integration_blueprint).
