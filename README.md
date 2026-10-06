@@ -31,8 +31,9 @@ Or by hand:
 
 ### Manual
 
-1. Copy `custom_components/nordpool_scheduler` into your Home Assistant `custom_components` directory
-2. Restart Home Assistant
+1. Download `nordpool_scheduler.zip` from the [latest release](https://github.com/klejejs/ha-nordpool-scheduler-integration/releases/latest)
+2. Unzip it into `custom_components/nordpool_scheduler` in your Home Assistant configuration directory
+3. Restart Home Assistant
 
 ## Configuration
 
@@ -154,6 +155,10 @@ scripts/test      # install test requirements, lint and run pytest
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how to submit changes.
+
+## Releasing
+
+Push a tag such as `v2.1.0`. The release workflow writes that version into `manifest.json`, zips the integration and publishes a GitHub release with `nordpool_scheduler.zip` attached, which is what HACS installs. The `0.0.0` in the committed `manifest.json` is a placeholder and never needs editing.
 
 ## License
 
