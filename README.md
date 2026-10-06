@@ -158,7 +158,13 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for how to submit changes.
 
 ## Releasing
 
-Push a tag such as `v2.1.0`. The release workflow writes that version into `manifest.json`, zips the integration and publishes a GitHub release with `nordpool_scheduler.zip` attached, which is what HACS installs. The `0.0.0` in the committed `manifest.json` is a placeholder and never needs editing.
+Releases are made only through GitHub Releases. Pushing a tag on its own builds nothing.
+
+Release Drafter keeps a draft release up to date on every merge to `main`. Its tag is the next minor version, or the next major one if a merged PR carries the `major` label. Its notes are grouped by PR label: `dependencies` (Renovate branches), `bug` (titles starting with "Fix") and `feature` (everything else). The labels are applied automatically when a PR opens, so relabel a PR before merging if it guessed wrong.
+
+To release, publish that draft from the GitHub UI. If it should be a different version, change the tag, the release title and the "Full Changelog" link at the bottom of the notes together. The draft only fills them in once, so editing the tag alone leaves the other two pointing at the old version. The first release has no earlier one to count from, so set its version by hand.
+
+Publishing runs the release workflow, which writes the release's tag into `manifest.json`, zips the integration and attaches `nordpool_scheduler.zip` to the release. That zip is what HACS installs. The `0.0.0` in the committed `manifest.json` is a placeholder and never needs editing.
 
 ## License
 
