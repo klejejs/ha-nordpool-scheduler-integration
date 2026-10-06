@@ -184,8 +184,8 @@ async def _async_apply_slot(
 
     control_mode = settings.get(CONF_CONTROL_MODE)
     if runtime.last_desired_state is None:
-        # First run since setup: only act if the target disagrees with the
-        # schedule, so a reload mid-slot doesn't flip a manually-set state.
+        # First run since setup: there is no previous slot to compare with,
+        # so only call the target if it doesn't already match the schedule.
         currently_on = target_state.state != STATE_OFF
         should_call = currently_on != desired_on
     else:

@@ -72,7 +72,7 @@ Each scheduler creates one device with three entities. For a scheduler named "Bo
 - The day is split into 15-minute slots. A slot is either overridden **on**, overridden **off**, or follows the **default** state.
 - At 00, 15, 30 and 45 past each hour the scheduler works out what the current slot wants and turns the target on or off.
 - With **Only act when the schedule changes**, it only calls `turn_on` or `turn_off` when the wanted state differs from the previous slot's.
-- After a restart or reload it only acts if the target disagrees with the current slot, so a reload mid-slot doesn't undo a manual change.
+- After a restart or reload it brings the target back in line with the current slot, switching it only if its state differs. A manual change that goes against the current slot is undone at that point.
 - A target that is `unavailable` or `unknown` is skipped for that slot.
 - Overrides are stored on disk and survive restarts. Overrides for slots that have ended are removed.
 - Prices are refreshed every hour, and again just after 13:00 CET when Nord Pool usually publishes the next day. Areas still on hourly prices have each hour's price copied to its four slots.
@@ -111,6 +111,8 @@ data:
 ## Example: run in tomorrow's cheapest two hours
 
 This uses the Nord Pool integration's own `get_prices_for_date` action to read tomorrow's prices, then switches on the eight cheapest slots. Replace the two config entry IDs and the area with your own.
+
+It assumes the scheduler is set to **Default OFF** and has no other overrides for tomorrow: `set_slots` only changes the slots it is given and leaves every other slot as it is. It also relies on Nord Pool's 15-minute day-ahead prices, so that each price entry is one slot.
 
 ```yaml
 automation:
