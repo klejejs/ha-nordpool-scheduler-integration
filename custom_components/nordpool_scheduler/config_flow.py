@@ -96,11 +96,22 @@ class NordpoolSchedulerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="user", menu_options=["scheduler", "prices"]
         )
 
+    def _nordpool_entry_field(self) -> vol.Required:
+        """Return the Nord Pool source field, preselecting the first entry.
+
+        The frontend can't build an empty initial value for a required
+        config entry selector and fails to render the form without a default.
+        """
+        entries = self.hass.config_entries.async_entries(NORDPOOL_DOMAIN)
+        return vol.Required(CONF_NORDPOOL_ENTRY_ID, default=entries[0].entry_id)
+
     async def async_step_scheduler(
         self,
         user_input: dict[str, Any] | None = None,
     ) -> config_entries.ConfigFlowResult:
         """Collect the scheduler name, target entity and Nord Pool source."""
+        if not self.hass.config_entries.async_entries(NORDPOOL_DOMAIN):
+            return self.async_abort(reason="nordpool_not_configured")
         errors: dict[str, str] = {}
 
         if user_input is not None:
@@ -117,7 +128,7 @@ class NordpoolSchedulerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(
                     CONF_DEFAULT_STATE, default=STATE_DEFAULT_OFF
                 ): _default_state_selector(),
-                vol.Required(CONF_NORDPOOL_ENTRY_ID): _nordpool_entry_selector(),
+                self._nordpool_entry_field(): _nordpool_entry_selector(),
             },
         )
 
@@ -130,12 +141,14 @@ class NordpoolSchedulerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         user_input: dict[str, Any] | None = None,
     ) -> config_entries.ConfigFlowResult:
         """Collect the Nord Pool source for a prices-only entry."""
+        if not self.hass.config_entries.async_entries(NORDPOOL_DOMAIN):
+            return self.async_abort(reason="nordpool_not_configured")
         if user_input is not None:
             self._user_input = user_input
             return await self.async_step_area()
 
         data_schema = vol.Schema(
-            {vol.Required(CONF_NORDPOOL_ENTRY_ID): _nordpool_entry_selector()}
+            {self._nordpool_entry_field(): _nordpool_entry_selector()}
         )
         return self.async_show_form(step_id="prices", data_schema=data_schema)
 
