@@ -30,7 +30,6 @@ from .const import (
     SLOT_STATE_OFF,
     SLOT_STATE_ON,
     STATE_DEFAULT_OFF,
-    STATE_DEFAULT_ON,
 )
 from .util import local_midnight_today, slot_start_for
 
@@ -51,13 +50,36 @@ def _entry_for_sensor(hass: HomeAssistant, entity_id: str) -> ConfigEntry | None
     return hass.config_entries.async_get_entry(registry_entry.config_entry_id)
 
 
+def _on_off(*, on: bool) -> str:
+    return SLOT_STATE_ON if on else SLOT_STATE_OFF
+
+
+def _entity_id_for(hass: HomeAssistant, domain: str, unique_id: str) -> str | None:
+    return er.async_get(hass).async_get_entity_id(domain, DOMAIN, unique_id)
+
+
+def _build_auto_snapshot(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, Any]:
+    """Auto mode's state, settings and the entities that hold them."""
+    runtime = entry.runtime_data
+    entry_id = entry.entry_id
+    return {
+        "enabled": runtime.auto_enabled,
+        "switch_entity": _entity_id_for(hass, "switch", f"{entry_id}_auto_mode"),
+        "run_hours": runtime.run_hours,
+        "max_price": runtime.max_price,
+        "cheap_price": runtime.cheap_price,
+        "run_hours_entity": _entity_id_for(hass, "number", f"{entry_id}_run_hours"),
+        "max_price_entity": _entity_id_for(hass, "number", f"{entry_id}_max_price"),
+        "cheap_price_entity": _entity_id_for(hass, "number", f"{entry_id}_cheap_price"),
+    }
+
+
 def _build_snapshot(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, Any]:
     """Build the current schedule/price snapshot for one config entry."""
     runtime = entry.runtime_data
     coordinator = runtime.coordinator
     settings = {**entry.data, **entry.options}
     default_state = settings.get(CONF_DEFAULT_STATE, STATE_DEFAULT_OFF)
-    default_on = default_state == STATE_DEFAULT_ON
     target_entity = settings[CONF_TARGET_ENTITY]
 
     window_start = local_midnight_today(hass)
@@ -71,18 +93,17 @@ def _build_snapshot(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, Any]:
     cursor = window_start
     while cursor < window_end:
         override = runtime.schedule.get(cursor)
-        effective_on = default_on if override is None else override
+        base_on, _source = runtime.base_state(cursor)
+        effective_on, _source = runtime.slot_state(cursor)
         slots.append(
             {
                 "start": cursor.isoformat(),
                 "end": (cursor + timedelta(minutes=SLOT_MINUTES)).isoformat(),
                 "price": coordinator.get_price(cursor),
-                "override": (
-                    None
-                    if override is None
-                    else (SLOT_STATE_ON if override else SLOT_STATE_OFF)
-                ),
-                "effective": SLOT_STATE_ON if effective_on else SLOT_STATE_OFF,
+                "override": None if override is None else _on_off(on=override),
+                "base": _on_off(on=base_on),
+                "auto": runtime.auto_pick(cursor),
+                "effective": _on_off(on=effective_on),
             }
         )
         cursor += timedelta(minutes=SLOT_MINUTES)
@@ -99,6 +120,7 @@ def _build_snapshot(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, Any]:
         "vat_percent": coordinator.vat_percent,
         "now_slot_start": slot_start_for(dt_util.utcnow()).isoformat(),
         "target_state": target_state.state if target_state else None,
+        "auto": _build_auto_snapshot(hass, entry),
         "slots": slots,
     }
 

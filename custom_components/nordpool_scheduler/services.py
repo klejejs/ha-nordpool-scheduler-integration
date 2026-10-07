@@ -12,7 +12,6 @@ from homeassistant.core import ServiceCall, callback
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import selector
-from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -29,6 +28,7 @@ from .const import (
     SLOT_STATE_ON,
     SLOT_STATES,
 )
+from .control import async_apply_now
 from .util import slot_start_for
 
 if TYPE_CHECKING:
@@ -119,13 +119,13 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 state=None if state == SLOT_STATE_DEFAULT else state == SLOT_STATE_ON,
             )
 
-        async_dispatcher_send(hass, runtime.update_signal)
+        await async_apply_now(hass, entry)
 
     async def handle_clear_schedule(call: ServiceCall) -> None:
         entry = _loaded_entry(hass, call.data[ATTR_CONFIG_ENTRY])
         runtime = entry.runtime_data
         runtime.schedule.clear()
-        async_dispatcher_send(hass, runtime.update_signal)
+        await async_apply_now(hass, entry)
 
     hass.services.async_register(
         DOMAIN, SERVICE_SET_SLOTS, handle_set_slots, schema=SERVICE_SET_SLOTS_SCHEMA

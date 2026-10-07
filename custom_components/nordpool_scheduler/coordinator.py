@@ -47,8 +47,8 @@ PUBLISH_CHECK_MINUTE = 5
 class NordpoolSchedulerPriceCoordinator(DataUpdateCoordinator[dict[datetime, float]]):
     """Fetch Nord Pool prices via the core nordpool integration and cache them.
 
-    ``data`` maps each slot's UTC start timestamp to its price, in the Nord
-    Pool config entry's currency per kWh, including VAT.
+    ``data`` maps each slot's UTC start timestamp to its price in cents
+    (1/100 of the Nord Pool config entry's currency) per kWh, including VAT.
     """
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -164,7 +164,7 @@ class NordpoolSchedulerPriceCoordinator(DataUpdateCoordinator[dict[datetime, flo
         return prices
 
     async def _async_fetch_day(self, day: date) -> dict[datetime, float]:
-        """Fetch one CET delivery day of prices, converted to currency/kWh."""
+        """Fetch one CET delivery day of prices, converted to cents/kWh."""
         try:
             response = await self.hass.services.async_call(
                 NORDPOOL_DOMAIN,
@@ -195,7 +195,8 @@ class NordpoolSchedulerPriceCoordinator(DataUpdateCoordinator[dict[datetime, flo
             end = dt_util.parse_datetime(entry["end"])
             if start is None or end is None:
                 continue
-            price = round(entry["price"] / 1000 * vat_multiplier, 5)
+            # Nord Pool reports per MWh: /1000 for kWh, *100 for cents.
+            price = round(entry["price"] / 10 * vat_multiplier, 4)
             # Nord Pool's delivery periods aren't guaranteed to be 15 minutes
             # (an hourly market reports one entry per hour); fan each entry
             # out over every scheduler slot it actually covers.

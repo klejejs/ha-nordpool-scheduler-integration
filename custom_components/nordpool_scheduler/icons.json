@@ -3,6 +3,23 @@
     "switch": {
       "scheduler_enabled": {
         "default": "mdi:calendar-clock"
+      },
+      "auto_mode": {
+        "default": "mdi:robot",
+        "state": {
+          "off": "mdi:robot-off"
+        }
+      }
+    },
+    "number": {
+      "run_hours": {
+        "default": "mdi:timer-outline"
+      },
+      "max_price": {
+        "default": "mdi:cash-lock"
+      },
+      "cheap_price": {
+        "default": "mdi:cash-check"
       }
     }
   },

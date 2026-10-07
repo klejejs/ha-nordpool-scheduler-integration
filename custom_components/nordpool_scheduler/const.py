@@ -26,6 +26,14 @@ CONTROL_MODES: Final = [CONTROL_MODE_ON_CHANGE, CONTROL_MODE_ENFORCE]
 SLOT_MINUTES: Final = 15
 DEFAULT_VAT_PERCENT: Final = 21
 
+PRICE_UNIT: Final = "c/kWh"
+
+DEFAULT_RUN_HOURS: Final = 2.0
+
+SLOT_SOURCE_OVERRIDE: Final = "override"
+SLOT_SOURCE_AUTO: Final = "auto"
+SLOT_SOURCE_DEFAULT: Final = "default"
+
 # The upstream Nord Pool integration we depend on for prices
 NORDPOOL_DOMAIN: Final = "nordpool"
 NORDPOOL_SERVICE_GET_PRICES_FOR_DATE: Final = "get_prices_for_date"

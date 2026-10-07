@@ -8,11 +8,11 @@ from typing import TYPE_CHECKING
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
-from custom_components.nordpool_scheduler import _async_apply_slot
 from custom_components.nordpool_scheduler.const import (
     CONF_DEFAULT_STATE,
     CONF_TARGET_ENTITY,
 )
+from custom_components.nordpool_scheduler.control import async_apply_slot
 from custom_components.nordpool_scheduler.util import slot_start_for
 
 from .conftest import OSLO_TZ, hourly_day_prices
@@ -40,7 +40,7 @@ async def test_price_sensor(
     state = hass.states.get(SENSOR)
     assert state is not None
     assert state.state != "unknown"
-    assert state.attributes["unit_of_measurement"] == "EUR/kWh"
+    assert state.attributes["unit_of_measurement"] == "c/kWh"
     assert state.attributes["area"] == "LV"
     assert state.attributes["vat_percent"] == 21
 
@@ -152,6 +152,6 @@ async def test_scheduler_enabled_switch_gates_control(
         "input_boolean", "turn_on", lambda call: calls.append(call.service)
     )
     entry.runtime_data.schedule.set_slot(slot_start_for(datetime.now(UTC)), state=True)
-    await _async_apply_slot(hass, entry, datetime.now(UTC))
+    await async_apply_slot(hass, entry, datetime.now(UTC))
     await hass.async_block_till_done()
     assert not calls

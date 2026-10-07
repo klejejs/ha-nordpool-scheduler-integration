@@ -12,7 +12,7 @@ from homeassistant.core import callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_DEFAULT_STATE, CONF_TARGET_ENTITY, STATE_DEFAULT_ON
+from .const import CONF_TARGET_ENTITY
 from .entity import build_device_info
 from .util import slot_start_for
 
@@ -62,11 +62,8 @@ class NordpoolSchedulerScheduledOnSensor(BinarySensorEntity):
     @property
     def is_on(self) -> bool:
         """Return whether the current slot is scheduled on."""
-        settings = {**self._entry.data, **self._entry.options}
-        default_on = settings.get(CONF_DEFAULT_STATE) == STATE_DEFAULT_ON
-        slot_start = slot_start_for(dt_util.utcnow())
-        override = self._entry.runtime_data.schedule.get(slot_start)
-        return default_on if override is None else override
+        on, _source = self._current_slot_state()
+        return on
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -74,7 +71,13 @@ class NordpoolSchedulerScheduledOnSensor(BinarySensorEntity):
         settings = {**self._entry.data, **self._entry.options}
         target_entity = settings[CONF_TARGET_ENTITY]
         target_state = self.hass.states.get(target_entity)
+        _on, source = self._current_slot_state()
         return {
             "target_entity": target_entity,
             "target_state": target_state.state if target_state else "unavailable",
+            "source": source,
         }
+
+    def _current_slot_state(self) -> tuple[bool, str]:
+        slot_start = slot_start_for(dt_util.utcnow())
+        return self._entry.runtime_data.slot_state(slot_start)

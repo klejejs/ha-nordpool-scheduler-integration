@@ -6,35 +6,27 @@ import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from homeassistant.const import (
-    ATTR_ENTITY_ID,
-    EVENT_HOMEASSISTANT_STARTED,
-    SERVICE_TURN_OFF,
-    SERVICE_TURN_ON,
-    STATE_OFF,
-    STATE_UNAVAILABLE,
-    STATE_UNKNOWN,
-    Platform,
-)
+from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, Platform
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import async_track_utc_time_change
 from homeassistant.util import dt as dt_util
 
+from .auto import select_auto_slots
 from .const import (
-    CONF_CONTROL_MODE,
     CONF_DEFAULT_STATE,
-    CONF_TARGET_ENTITY,
-    CONTROL_MODE_ENFORCE,
+    DEFAULT_RUN_HOURS,
     DOMAIN,
+    SLOT_SOURCE_AUTO,
+    SLOT_SOURCE_DEFAULT,
+    SLOT_SOURCE_OVERRIDE,
     STATE_DEFAULT_ON,
 )
+from .control import async_apply_slot
 from .coordinator import NordpoolSchedulerPriceCoordinator
 from .schedule import ScheduleStore
 from .services import async_setup_services
-from .util import slot_start_for
 from .websocket_api import async_setup_websocket_api
 
 if TYPE_CHECKING:
@@ -45,7 +37,12 @@ if TYPE_CHECKING:
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BINARY_SENSOR, Platform.SWITCH]
+PLATFORMS: list[Platform] = [
+    Platform.SENSOR,
+    Platform.BINARY_SENSOR,
+    Platform.SWITCH,
+    Platform.NUMBER,
+]
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -59,7 +56,13 @@ class NordpoolSchedulerRuntimeData:
     coordinator: NordpoolSchedulerPriceCoordinator
     schedule: ScheduleStore
     entry_id: str
+    default_on: bool = False
     enabled: bool = True
+    auto_enabled: bool = False
+    run_hours: float = DEFAULT_RUN_HOURS
+    max_price: float = 0.0
+    cheap_price: float = 0.0
+    auto_slots: dict[datetime, bool] = field(default_factory=dict, repr=False)
     last_desired_state: bool | None = None
     unsub_tick: CALLBACK_TYPE | None = field(default=None, repr=False)
 
@@ -67,6 +70,37 @@ class NordpoolSchedulerRuntimeData:
     def update_signal(self) -> str:
         """Dispatcher signal fired when the schedule or prices change."""
         return f"{DOMAIN}_updated_{self.entry_id}"
+
+    def refresh_auto(self, hass: HomeAssistant) -> None:
+        """Recompute auto mode's picks from the current prices and settings."""
+        tz = dt_util.get_time_zone(hass.config.time_zone) or dt_util.DEFAULT_TIME_ZONE
+        self.auto_slots = select_auto_slots(
+            self.coordinator.data or {},
+            tz,
+            run_hours=self.run_hours,
+            max_price=self.max_price,
+            cheap_price=self.cheap_price,
+        )
+
+    def auto_pick(self, slot_start: datetime) -> bool | None:
+        """Return auto mode's choice for a slot, or None if it makes none."""
+        if not self.auto_enabled:
+            return None
+        return self.auto_slots.get(slot_start)
+
+    def base_state(self, slot_start: datetime) -> tuple[bool, str]:
+        """Return what auto mode or the default wants, ignoring overrides."""
+        auto = self.auto_pick(slot_start)
+        if auto is not None:
+            return auto, SLOT_SOURCE_AUTO
+        return self.default_on, SLOT_SOURCE_DEFAULT
+
+    def slot_state(self, slot_start: datetime) -> tuple[bool, str]:
+        """Return a slot's effective state and where it comes from."""
+        override = self.schedule.get(slot_start)
+        if override is not None:
+            return override, SLOT_SOURCE_OVERRIDE
+        return self.base_state(slot_start)
 
 
 async def async_setup(hass: HomeAssistant, _config: ConfigType) -> bool:
@@ -86,15 +120,20 @@ async def async_setup_entry(
     schedule = ScheduleStore(hass, entry.entry_id)
     await schedule.async_load()
 
+    settings = {**entry.data, **entry.options}
     runtime = NordpoolSchedulerRuntimeData(
-        coordinator=coordinator, schedule=schedule, entry_id=entry.entry_id
+        coordinator=coordinator,
+        schedule=schedule,
+        entry_id=entry.entry_id,
+        default_on=settings.get(CONF_DEFAULT_STATE) == STATE_DEFAULT_ON,
     )
+    runtime.refresh_auto(hass)
     entry.runtime_data = runtime
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     async def _async_apply_initial_state(_event: object = None) -> None:
-        await _async_apply_slot(hass, entry, dt_util.utcnow())
+        await async_apply_slot(hass, entry, dt_util.utcnow())
 
     if hass.is_running:
         await _async_apply_initial_state()
@@ -108,16 +147,19 @@ async def async_setup_entry(
     @callback
     def _on_tick(now: datetime) -> None:
         entry.async_create_task(
-            hass, _async_apply_slot(hass, entry, now), "nordpool_scheduler_tick"
+            hass, async_apply_slot(hass, entry, now), "nordpool_scheduler_tick"
         )
 
     entry.async_on_unload(
         async_track_utc_time_change(hass, _on_tick, minute=[0, 15, 30, 45], second=0)
     )
 
-    coordinator.async_add_listener(
-        lambda: async_dispatcher_send(hass, runtime.update_signal)
-    )
+    @callback
+    def _on_prices_updated() -> None:
+        runtime.refresh_auto(hass)
+        async_dispatcher_send(hass, runtime.update_signal)
+
+    entry.async_on_unload(coordinator.async_add_listener(_on_prices_updated))
 
     return True
 
@@ -154,68 +196,3 @@ async def async_migrate_entry(
         )
         return False
     return True
-
-
-async def _async_apply_slot(
-    hass: HomeAssistant,
-    entry: NordpoolSchedulerConfigEntry,
-    now: datetime,
-) -> None:
-    """Turn the target entity on or off for the slot containing ``now``."""
-    runtime = entry.runtime_data
-    if not runtime.enabled:
-        return
-
-    settings = {**entry.data, **entry.options}
-    target_entity: str = settings[CONF_TARGET_ENTITY]
-    target_state = hass.states.get(target_entity)
-    if target_state is None or target_state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
-        _LOGGER.debug(
-            "Target entity %s is unavailable, skipping slot update", target_entity
-        )
-        return
-
-    slot_start = slot_start_for(now)
-    default_on = settings.get(CONF_DEFAULT_STATE) == STATE_DEFAULT_ON
-    override = runtime.schedule.get(slot_start)
-    desired_on = default_on if override is None else override
-
-    runtime.schedule.prune_ended(now)
-
-    control_mode = settings.get(CONF_CONTROL_MODE)
-    if runtime.last_desired_state is None:
-        # First run since setup: there is no previous slot to compare with,
-        # so only call the target if it doesn't already match the schedule.
-        currently_on = target_state.state != STATE_OFF
-        should_call = currently_on != desired_on
-    else:
-        should_call = (
-            control_mode == CONTROL_MODE_ENFORCE
-            or runtime.last_desired_state != desired_on
-        )
-
-    if not should_call:
-        runtime.last_desired_state = desired_on
-    else:
-        domain = target_entity.split(".")[0]
-        try:
-            await hass.services.async_call(
-                domain,
-                SERVICE_TURN_ON if desired_on else SERVICE_TURN_OFF,
-                {ATTR_ENTITY_ID: target_entity},
-            )
-        except HomeAssistantError as err:
-            # A failed call here must not fail entry setup, or abort a
-            # 15-minute tick shared with other listeners. Leave the marker
-            # unset so on_change mode retries on the next tick instead of
-            # believing this state was already applied.
-            _LOGGER.warning(
-                "Could not set %s to %s: %s", target_entity, desired_on, err
-            )
-        else:
-            runtime.last_desired_state = desired_on
-            _LOGGER.debug(
-                "%s: slot %s -> %s", entry.title, slot_start.isoformat(), desired_on
-            )
-
-    async_dispatcher_send(hass, runtime.update_signal)

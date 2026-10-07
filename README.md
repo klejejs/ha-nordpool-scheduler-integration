@@ -6,7 +6,7 @@
 [![Lint](https://github.com/klejejs/ha-nordpool-scheduler-integration/actions/workflows/lint.yml/badge.svg)](https://github.com/klejejs/ha-nordpool-scheduler-integration/actions/workflows/lint.yml)
 [![License](https://img.shields.io/github/license/klejejs/ha-nordpool-scheduler-integration)](LICENSE)
 
-A Home Assistant integration that turns an entity on or off in 15-minute slots, priced by Nord Pool. Each scheduler has a default state (on or off) and a list of slot overrides. At every quarter hour it applies whichever one covers the current slot.
+A Home Assistant integration that turns an entity on or off in 15-minute slots, priced by Nord Pool. Each scheduler has a default state (on or off), an optional auto mode that runs the entity in the cheapest slots of each day, and a list of slot overrides. At every quarter hour it applies whichever one covers the current slot.
 
 Prices come from Home Assistant's built-in [Nord Pool integration](https://www.home-assistant.io/integrations/nordpool/), so there's no extra account or API key.
 
@@ -43,7 +43,7 @@ Go to **Settings** → **Devices & services** → **Add integration** → **Nord
 |---|---|
 | Scheduler name | A name for this scheduler, used in its entity IDs |
 | Target entity | The entity to control: a `switch`, `input_boolean`, `light`, `fan` or `climate` |
-| Default state | What the entity does in a slot with no override: **Default OFF** or **Default ON** |
+| Default state | What the entity does in a slot with no override while auto mode is off: **Default OFF** or **Default ON** |
 | Nord Pool source | The Nord Pool integration entry to take prices from |
 | Area | Asked only when the Nord Pool entry covers more than one area |
 
@@ -54,24 +54,42 @@ Add one scheduler per entity. An entity can only have one scheduler.
 | Option | Default | Description |
 |---|---|---|
 | Target entity | | The entity to control |
-| Default state | Default OFF | The state for slots with no override |
+| Default state | Default OFF | The state for slots with no override while auto mode is off |
 | Manual toggles | Only act when the schedule changes | **Only act when the schedule changes** leaves an entity you toggled by hand alone until the schedule wants something different. **Enforce every 15 minutes** re-applies the schedule at every slot. |
 | VAT percentage | 21 | Added on top of the Nord Pool price |
 
 ## Entities
 
-Each scheduler creates one device with three entities. For a scheduler named "Boiler":
+Each scheduler creates one device with seven entities. For a scheduler named "Boiler":
 
 | Entity | Description |
 |---|---|
-| `sensor.nordpool_scheduler_boiler_electricity_price` | The current slot's price in your Nord Pool currency per kWh, VAT included. Attributes: `area`, `vat_percent`. |
-| `binary_sensor.nordpool_scheduler_boiler_scheduled_on` | On when the schedule wants the target on for the current slot. Attributes: `target_entity`, `target_state`. |
+| `sensor.nordpool_scheduler_boiler_electricity_price` | The current slot's price in cents (1/100 of your Nord Pool currency) per kWh, VAT included. Attributes: `area`, `vat_percent`. |
+| `binary_sensor.nordpool_scheduler_boiler_scheduled_on` | On when the schedule wants the target on for the current slot. Attributes: `target_entity`, `target_state`, and `source` (`override`, `auto` or `default`). |
 | `switch.nordpool_scheduler_boiler_scheduler_enabled` | Turn it off to pause the scheduler. The target is left as it is until you turn the switch back on. |
+| `switch.nordpool_scheduler_boiler_auto_mode` | Auto mode, off by default. See [Auto mode](#auto-mode). |
+| `number.nordpool_scheduler_boiler_auto_hours_per_day` | Hours a day auto mode runs the target, in 15-minute steps. Default 2. |
+| `number.nordpool_scheduler_boiler_auto_max_price` | Auto mode skips a picked slot above this price, in c/kWh. 0 turns the limit off. |
+| `number.nordpool_scheduler_boiler_auto_cheap_price` | Auto mode also runs every slot at or below this price, in c/kWh. 0 turns it off. |
+
+The auto mode switch and numbers keep their values across restarts.
+
+## Auto mode
+
+With auto mode on, the scheduler picks which slots run instead of using the default state:
+
+- Each local day, midnight to midnight in Home Assistant's time zone, runs in its cheapest slots, adding up to **Auto hours per day**. A tie goes to the earlier slot.
+- A picked slot priced above **Auto max price** doesn't run, so on an expensive day the target can run for less than its hours.
+- Every slot at or below **Auto cheap price** runs, even past the hours.
+- A day is only decided once every one of its slots has a price. Until then, for example tomorrow before Nord Pool publishes, its slots follow the default state.
+- An override always wins over auto mode's pick.
+
+Turning auto mode on or off, or changing one of its numbers, takes effect for the current slot at once.
 
 ## How it works
 
-- The day is split into 15-minute slots. A slot is either overridden **on**, overridden **off**, or follows the **default** state.
-- At 00, 15, 30 and 45 past each hour the scheduler works out what the current slot wants and turns the target on or off.
+- The day is split into 15-minute slots. A slot is either overridden **on**, overridden **off**, or follows auto mode's pick when auto mode is on and the default state otherwise.
+- At 00, 15, 30 and 45 past each hour the scheduler works out what the current slot wants and turns the target on or off. Changing an override, auto mode or one of its numbers re-checks the current slot straight away.
 - With **Only act when the schedule changes**, it only calls `turn_on` or `turn_off` when the wanted state differs from the previous slot's.
 - After a restart or reload it brings the target back in line with the current slot, switching it only if its state differs. A manual change that goes against the current slot is undone at that point.
 - A target that is `unavailable` or `unknown` is skipped for that slot.
@@ -82,7 +100,7 @@ Each scheduler creates one device with three entities. For a scheduler named "Bo
 
 ### `nordpool_scheduler.set_slots`
 
-Sets one or more slots to `on`, `off` or `default`. `default` removes the override. Each `start` must fall on a 15-minute boundary and lie between the current slot and two days ahead.
+Sets one or more slots to `on`, `off` or `default`. `default` removes the override, so the slot follows auto mode or the default state again. Each `start` must fall on a 15-minute boundary and lie between the current slot and two days ahead.
 
 ```yaml
 action: nordpool_scheduler.set_slots
@@ -99,7 +117,7 @@ data:
 
 ### `nordpool_scheduler.clear_schedule`
 
-Removes every override, so every slot follows the default state.
+Removes every override, so every slot follows auto mode or the default state.
 
 ```yaml
 action: nordpool_scheduler.clear_schedule
@@ -108,36 +126,6 @@ data:
 ```
 
 `config_entry` is the scheduler's config entry ID. Pick the scheduler from the dropdown in the action editor and switch to YAML to see it.
-
-## Example: run in tomorrow's cheapest two hours
-
-This uses the Nord Pool integration's own `get_prices_for_date` action to read tomorrow's prices, then switches on the eight cheapest slots. Replace the two config entry IDs and the area with your own.
-
-It assumes the scheduler is set to **Default OFF** and has no other overrides for tomorrow: `set_slots` only changes the slots it is given and leaves every other slot as it is. It also relies on Nord Pool's 15-minute day-ahead prices, so that each price entry is one slot.
-
-```yaml
-automation:
-  - alias: "Boiler: schedule the cheapest slots tomorrow"
-    triggers:
-      - trigger: time
-        at: "14:00:00"
-    actions:
-      - action: nordpool.get_prices_for_date
-        data:
-          config_entry: YOUR_NORDPOOL_ENTRY_ID
-          date: "{{ (now() + timedelta(days=1)).date() }}"
-          areas: LV
-        response_variable: prices
-      - action: nordpool_scheduler.set_slots
-        data:
-          config_entry: YOUR_SCHEDULER_ENTRY_ID
-          slots: >
-            {% set ns = namespace(slots=[]) %}
-            {% for p in (prices.LV | sort(attribute='price'))[:8] %}
-              {% set ns.slots = ns.slots + [{"start": p.start, "state": "on"}] %}
-            {% endfor %}
-            {{ ns.slots }}
-```
 
 ## Upgrading from 1.x
 

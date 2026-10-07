@@ -11,13 +11,14 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.nordpool_scheduler import CONFIG_SCHEMA, _async_apply_slot
+from custom_components.nordpool_scheduler import CONFIG_SCHEMA
 from custom_components.nordpool_scheduler.const import (
     CONF_CONTROL_MODE,
     CONF_TARGET_ENTITY,
     CONTROL_MODE_ENFORCE,
     DOMAIN,
 )
+from custom_components.nordpool_scheduler.control import async_apply_slot
 
 from .conftest import setup_scheduler_entry as _setup
 
@@ -33,7 +34,7 @@ async def test_setup_creates_entities(
     mock_target: str,
     nordpool_prices: dict[date, list],
 ) -> None:
-    """Setting up an entry creates the sensor, binary sensor and switch."""
+    """Setting up an entry creates its sensor, binary sensor, switches and numbers."""
     await _setup(hass, mock_config_entry, nordpool_prices)
 
     assert mock_config_entry.state.name == "LOADED"
@@ -42,7 +43,7 @@ async def test_setup_creates_entities(
     entries = er.async_entries_for_config_entry(
         entity_registry, mock_config_entry.entry_id
     )
-    assert len(entries) == 3
+    assert len(entries) == 7
 
 
 async def test_unload_entry(
@@ -113,7 +114,7 @@ async def test_apply_slot_skips_when_target_unavailable(
 
     calls: list[dict] = []
     hass.bus.async_listen(EVENT_CALL_SERVICE, lambda event: calls.append(event.data))
-    await _async_apply_slot(hass, mock_config_entry, datetime.now(UTC))
+    await async_apply_slot(hass, mock_config_entry, datetime.now(UTC))
     await hass.async_block_till_done()
     assert not calls
 
@@ -138,12 +139,12 @@ async def test_on_change_mode_only_calls_on_transition(
     now = datetime.now(UTC)
     runtime.schedule.set_slot(_slot_start(now), state=True)
 
-    await _async_apply_slot(hass, entry, now)
+    await async_apply_slot(hass, entry, now)
     await hass.async_block_till_done()
     assert calls == ["turn_on"]
 
     # Same slot, same desired state -> no repeat call in on_change mode.
-    await _async_apply_slot(hass, entry, now)
+    await async_apply_slot(hass, entry, now)
     await hass.async_block_till_done()
     assert calls == ["turn_on"]
 
@@ -170,7 +171,7 @@ async def test_on_change_mode_retries_after_failed_call(
     runtime.schedule.set_slot(_slot_start(now), state=True)
 
     # input_boolean.turn_on isn't registered yet, so the call fails.
-    await _async_apply_slot(hass, entry, now)
+    await async_apply_slot(hass, entry, now)
     await hass.async_block_till_done()
     assert runtime.last_desired_state is False
 
@@ -180,7 +181,7 @@ async def test_on_change_mode_retries_after_failed_call(
     )
 
     # Same slot, same desired state, but the previous call never went through.
-    await _async_apply_slot(hass, entry, now)
+    await async_apply_slot(hass, entry, now)
     await hass.async_block_till_done()
     assert calls == ["turn_on"]
     assert runtime.last_desired_state is True
@@ -214,7 +215,7 @@ async def test_enforce_mode_calls_every_slot(
     hass.services.async_register("input_boolean", "turn_off", _record)
     hass.services.async_register("input_boolean", "turn_on", _record)
 
-    await _async_apply_slot(hass, entry, now)
+    await async_apply_slot(hass, entry, now)
     await hass.async_block_till_done()
     assert "turn_off" in calls
 
@@ -235,7 +236,7 @@ async def test_reload_mid_slot_keeps_current_override(
     entry = hass.config_entries.async_get_entry(mock_config_entry.entry_id)
     now = datetime.now(UTC)
     entry.runtime_data.schedule.set_slot(_slot_start(now), state=True)
-    await _async_apply_slot(hass, entry, now)
+    await async_apply_slot(hass, entry, now)
     await hass.async_block_till_done()
     assert hass.states.get(mock_target).state == "on"
 
