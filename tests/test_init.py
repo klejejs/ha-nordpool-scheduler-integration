@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from homeassistant.const import EVENT_CALL_SERVICE
 from homeassistant.core import DOMAIN as HOMEASSISTANT_DOMAIN
 from homeassistant.helpers import entity_registry as er
 from homeassistant.setup import async_setup_component
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from homeassistant.util import dt as dt_util
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_capture_events,
+    async_fire_time_changed,
+)
 
 from custom_components.nordpool_scheduler import CONFIG_SCHEMA, _async_apply_slot
 from custom_components.nordpool_scheduler.const import (
@@ -58,6 +63,35 @@ async def test_unload_entry(
     assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
     await hass.async_block_till_done()
     assert mock_config_entry.state.name == "NOT_LOADED"
+
+
+async def test_prices_entry_only_creates_price_sensor(
+    hass: HomeAssistant,
+    mock_prices_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """A prices entry gets the price sensor and never calls turn_on/turn_off."""
+    calls = async_capture_events(hass, EVENT_CALL_SERVICE)
+    await _setup(hass, mock_prices_entry, nordpool_prices)
+
+    entries = er.async_entries_for_config_entry(
+        er.async_get(hass), mock_prices_entry.entry_id
+    )
+    assert [entry.entity_id for entry in entries] == [
+        "sensor.nordpool_scheduler_prices_lv_electricity_price"
+    ]
+    assert hass.states.get("sensor.nordpool_scheduler_prices_lv_electricity_price")
+
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(minutes=15))
+    await hass.async_block_till_done()
+    assert not [
+        call for call in calls if call.data["service"] in ("turn_on", "turn_off")
+    ]
+
+    assert await hass.config_entries.async_unload(mock_prices_entry.entry_id)
+    await hass.async_block_till_done()
+    assert mock_prices_entry.state.name == "NOT_LOADED"
 
 
 async def test_migrate_v1_entry_fails(hass: HomeAssistant) -> None:
