@@ -32,7 +32,7 @@ from .const import (
     STATE_DEFAULT_OFF,
 )
 from .stats import WINDOWS
-from .util import local_midnight_today, slot_start_for
+from .util import local_midnight, slot_start_for
 
 
 @callback
@@ -94,8 +94,8 @@ def _build_snapshot(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, Any]:
     default_state = settings.get(CONF_DEFAULT_STATE, STATE_DEFAULT_OFF)
     target_entity = settings.get(CONF_TARGET_ENTITY)
 
-    window_start = local_midnight_today(hass)
-    window_end = window_start + timedelta(days=MAX_SLOT_LOOKAHEAD_DAYS)
+    window_start = local_midnight(hass)
+    window_end = local_midnight(hass, MAX_SLOT_LOOKAHEAD_DAYS)
 
     slots: list[dict[str, Any]] = []
     cursor = window_start

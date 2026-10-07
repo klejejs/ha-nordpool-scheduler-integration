@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
+import pytest
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.util import dt as dt_util
 
@@ -14,6 +15,7 @@ from .conftest import setup_scheduler_entry as _setup
 if TYPE_CHECKING:
     from datetime import date
 
+    from freezegun.api import FrozenDateTimeFactory
     from homeassistant.core import HomeAssistant
     from pytest_homeassistant_custom_component.common import MockConfigEntry
     from pytest_homeassistant_custom_component.typing import WebSocketGenerator
@@ -135,20 +137,34 @@ async def test_subscribe_prices_entry_has_no_target(
     assert any(slot["price"] is not None for slot in snapshot["slots"])
 
 
+@pytest.mark.parametrize(
+    "now",
+    [
+        datetime(2026, 10, 7, 9, 0, tzinfo=UTC),
+        # Tomorrow is 23 hours long (spring forward).
+        datetime(2026, 3, 28, 9, 0, tzinfo=UTC),
+        # Tomorrow is 25 hours long (fall back).
+        datetime(2026, 10, 24, 9, 0, tzinfo=UTC),
+    ],
+)
 async def test_snapshot_stops_at_end_of_local_tomorrow(
     hass: HomeAssistant,
     hass_ws_client: WebSocketGenerator,
+    freezer: FrozenDateTimeFactory,
     mock_config_entry: MockConfigEntry,
     mock_nordpool_service: None,
     nordpool_prices: dict[date, list],
+    now: datetime,
 ) -> None:
     """East of CET, Nord Pool's tomorrow runs past local midnight; that tail is cut."""
+    # Connect first: the client's access token is issued at the real time.
+    client = await hass_ws_client(hass)
+    freezer.move_to(now)
     await hass.config.async_set_time_zone("Europe/Riga")
     tomorrow = datetime.now(OSLO_TZ).date() + timedelta(days=1)
     nordpool_prices[tomorrow] = hourly_day_prices(tomorrow)
     await _setup(hass, mock_config_entry, nordpool_prices)
 
-    client = await hass_ws_client(hass)
     await client.send_json(
         {
             "id": 1,
