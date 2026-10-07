@@ -7,10 +7,11 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 
 import voluptuous as vol
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import ServiceCall, callback
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers import selector, service
+from homeassistant.helpers import selector
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.util import dt as dt_util
 
@@ -32,6 +33,8 @@ from .util import slot_start_for
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
+
+    from . import NordpoolSchedulerConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -63,14 +66,30 @@ SERVICE_CLEAR_SCHEDULE_SCHEMA = vol.Schema(
 )
 
 
+def _loaded_entry(hass: HomeAssistant, entry_id: str) -> NordpoolSchedulerConfigEntry:
+    """Return a loaded scheduler entry, or raise a validation error."""
+    entry = hass.config_entries.async_get_entry(entry_id)
+    if entry is None or entry.domain != DOMAIN:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="entry_not_found",
+            translation_placeholders={"entry_id": entry_id},
+        )
+    if entry.state is not ConfigEntryState.LOADED:
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="entry_not_loaded",
+            translation_placeholders={"entry_id": entry_id},
+        )
+    return entry
+
+
 @callback
 def async_setup_services(hass: HomeAssistant) -> None:
     """Register services for Nordpool Scheduler."""
 
     async def handle_set_slots(call: ServiceCall) -> None:
-        entry = service.async_get_config_entry(
-            hass, DOMAIN, call.data[ATTR_CONFIG_ENTRY]
-        )
+        entry = _loaded_entry(hass, call.data[ATTR_CONFIG_ENTRY])
         runtime = entry.runtime_data
         now = dt_util.utcnow()
         earliest = slot_start_for(now)
@@ -103,9 +122,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
         async_dispatcher_send(hass, runtime.update_signal)
 
     async def handle_clear_schedule(call: ServiceCall) -> None:
-        entry = service.async_get_config_entry(
-            hass, DOMAIN, call.data[ATTR_CONFIG_ENTRY]
-        )
+        entry = _loaded_entry(hass, call.data[ATTR_CONFIG_ENTRY])
         runtime = entry.runtime_data
         runtime.schedule.clear()
         async_dispatcher_send(hass, runtime.update_signal)

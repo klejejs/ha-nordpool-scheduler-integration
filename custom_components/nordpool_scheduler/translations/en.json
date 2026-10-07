@@ -80,6 +80,12 @@
     },
     "slot_out_of_range": {
       "message": "Slot start {start} is outside the range of known prices"
+    },
+    "entry_not_found": {
+      "message": "No Nordpool Scheduler with config entry ID {entry_id}"
+    },
+    "entry_not_loaded": {
+      "message": "The Nordpool Scheduler {entry_id} is not loaded"
     }
   },
   "services": {
