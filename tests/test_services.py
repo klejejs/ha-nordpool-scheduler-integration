@@ -154,3 +154,25 @@ async def test_set_slots_rejects_bad_state(
             },
             blocking=True,
         )
+
+
+async def test_set_slots_rejects_prices_entry(
+    hass: HomeAssistant,
+    mock_prices_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """A prices entry has no schedule to set."""
+    await _setup(hass, mock_prices_entry, nordpool_prices)
+    start = slot_start_for(datetime.now(OSLO_TZ))
+
+    with pytest.raises(ServiceValidationError):
+        await hass.services.async_call(
+            DOMAIN,
+            "set_slots",
+            {
+                "config_entry": mock_prices_entry.entry_id,
+                "slots": [{"start": start.isoformat(), "state": "on"}],
+            },
+            blocking=True,
+        )

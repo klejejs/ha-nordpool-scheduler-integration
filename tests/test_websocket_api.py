@@ -102,3 +102,30 @@ async def test_subscribe_unknown_entity_errors(
     response = await client.receive_json()
     assert not response["success"]
     assert response["error"]["code"] == "not_found"
+
+
+async def test_subscribe_prices_entry_has_no_target(
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    mock_prices_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """A prices entry's snapshot has prices but no target entity."""
+    await _setup(hass, mock_prices_entry, nordpool_prices)
+
+    client = await hass_ws_client(hass)
+    await client.send_json(
+        {
+            "id": 1,
+            "type": "nordpool_scheduler/subscribe",
+            "entity_id": "sensor.nordpool_scheduler_prices_lv_electricity_price",
+        }
+    )
+    response = await client.receive_json()
+    assert response["success"]
+
+    snapshot = (await client.receive_json())["event"]
+    assert snapshot["target_entity"] is None
+    assert snapshot["target_state"] is None
+    assert any(slot["price"] is not None for slot in snapshot["slots"])

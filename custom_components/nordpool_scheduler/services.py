@@ -29,7 +29,7 @@ from .const import (
     SLOT_STATE_ON,
     SLOT_STATES,
 )
-from .util import slot_start_for
+from .util import is_prices_only, slot_start_for
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -79,12 +79,23 @@ def _loaded_entry(hass: HomeAssistant, entry_id: str) -> ConfigEntry:
     return entry
 
 
+def _scheduler_entry(hass: HomeAssistant, entry_id: str) -> ConfigEntry:
+    entry = _loaded_entry(hass, entry_id)
+    if is_prices_only(entry):
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="prices_only_entry",
+            translation_placeholders={"title": entry.title},
+        )
+    return entry
+
+
 @callback
 def async_setup_services(hass: HomeAssistant) -> None:
     """Register services for Nordpool Scheduler."""
 
     async def handle_set_slots(call: ServiceCall) -> None:
-        entry = _loaded_entry(hass, call.data[ATTR_CONFIG_ENTRY])
+        entry = _scheduler_entry(hass, call.data[ATTR_CONFIG_ENTRY])
         runtime = entry.runtime_data
         now = dt_util.utcnow()
         earliest = slot_start_for(now)
@@ -117,7 +128,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
         async_dispatcher_send(hass, runtime.update_signal)
 
     async def handle_clear_schedule(call: ServiceCall) -> None:
-        entry = _loaded_entry(hass, call.data[ATTR_CONFIG_ENTRY])
+        entry = _scheduler_entry(hass, call.data[ATTR_CONFIG_ENTRY])
         runtime = entry.runtime_data
         runtime.schedule.clear()
         async_dispatcher_send(hass, runtime.update_signal)

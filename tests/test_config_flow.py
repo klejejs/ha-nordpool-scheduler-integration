@@ -26,17 +26,27 @@ if TYPE_CHECKING:
     from datetime import date
 
     from homeassistant.core import HomeAssistant
+    from homeassistant.data_entry_flow import FlowResult
+
+
+async def _start_flow(hass: HomeAssistant, entry_type: str) -> FlowResult:
+    """Start a user flow and pick ``entry_type`` from the menu."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    assert result["type"] is FlowResultType.MENU
+    return await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": entry_type}
+    )
 
 
 async def test_full_flow_single_area(
     hass: HomeAssistant, mock_nordpool_entry: MockConfigEntry, mock_target: str
 ) -> None:
     """The area step is skipped when the Nord Pool entry has one area."""
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}
-    )
+    result = await _start_flow(hass, "scheduler")
     assert result["type"] is FlowResultType.FORM
-    assert result["step_id"] == "user"
+    assert result["step_id"] == "scheduler"
 
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
@@ -60,9 +70,7 @@ async def test_flow_multi_area_requires_selection(
     )
     entry.add_to_hass(hass)
 
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}
-    )
+    result = await _start_flow(hass, "scheduler")
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {
@@ -85,9 +93,7 @@ async def test_flow_invalid_target(
     hass: HomeAssistant, mock_nordpool_entry: MockConfigEntry
 ) -> None:
     """An entity that doesn't exist is rejected with an error, not an exception."""
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}
-    )
+    result = await _start_flow(hass, "scheduler")
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {
@@ -119,9 +125,7 @@ async def test_duplicate_target_aborts(
     """A second scheduler for the same target entity is rejected."""
     mock_config_entry.add_to_hass(hass)
 
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}
-    )
+    result = await _start_flow(hass, "scheduler")
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {
@@ -260,9 +264,7 @@ async def test_options_flow_retargeting_updates_unique_id(
     assert mock_config_entry.unique_id == new_target
 
     # The old target is now free for a new scheduler to claim.
-    result = await hass.config_entries.flow.async_init(
-        DOMAIN, context={"source": config_entries.SOURCE_USER}
-    )
+    result = await _start_flow(hass, "scheduler")
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {
@@ -273,3 +275,62 @@ async def test_options_flow_retargeting_updates_unique_id(
         },
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+async def test_prices_flow_creates_entry_without_target(
+    hass: HomeAssistant, mock_nordpool_entry: MockConfigEntry
+) -> None:
+    """A prices entry only asks for the Nord Pool source."""
+    result = await _start_flow(hass, "prices")
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "prices"
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_NORDPOOL_ENTRY_ID: mock_nordpool_entry.entry_id}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["title"] == "Nordpool Scheduler - Prices LV"
+    assert result["data"] == {
+        CONF_NORDPOOL_ENTRY_ID: mock_nordpool_entry.entry_id,
+        CONF_AREA: "LV",
+    }
+    assert result["result"].unique_id == f"prices_{mock_nordpool_entry.entry_id}_LV"
+
+
+async def test_duplicate_prices_entry_aborts(
+    hass: HomeAssistant,
+    mock_nordpool_entry: MockConfigEntry,
+    mock_prices_entry: MockConfigEntry,
+) -> None:
+    """A second prices entry for the same Nord Pool area is rejected."""
+    mock_prices_entry.add_to_hass(hass)
+
+    result = await _start_flow(hass, "prices")
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_NORDPOOL_ENTRY_ID: mock_nordpool_entry.entry_id}
+    )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+
+
+async def test_prices_options_flow_only_sets_vat(
+    hass: HomeAssistant,
+    mock_prices_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """A prices entry's options are only the VAT percentage."""
+    await setup_scheduler_entry(hass, mock_prices_entry, nordpool_prices)
+
+    result = await hass.config_entries.options.async_init(mock_prices_entry.entry_id)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "prices"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {CONF_VAT_PERCENT: 0}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+
+    assert mock_prices_entry.options == {CONF_VAT_PERCENT: 0}
+    assert mock_prices_entry.state.name == "LOADED"

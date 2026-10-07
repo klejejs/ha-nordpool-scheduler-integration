@@ -6,12 +6,18 @@ from typing import TYPE_CHECKING
 
 from homeassistant.util import dt as dt_util
 
-from .const import SLOT_MINUTES
+from .const import CONF_TARGET_ENTITY, SLOT_MINUTES
 
 if TYPE_CHECKING:
     from datetime import datetime
 
+    from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
+
+
+def is_prices_only(entry: ConfigEntry) -> bool:
+    """Return whether the entry only supplies prices and controls no entity."""
+    return CONF_TARGET_ENTITY not in {**entry.data, **entry.options}
 
 
 def slot_start_for(moment: datetime) -> datetime:
