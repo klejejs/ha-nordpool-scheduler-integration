@@ -92,12 +92,36 @@
     },
     "binary_sensor": {
       "scheduled_on": {
-        "name": "Scheduled on"
+        "name": "Scheduled on",
+        "state_attributes": {
+          "source": {
+            "name": "Source",
+            "state": {
+              "override": "Override",
+              "auto": "Auto mode",
+              "default": "Default state"
+            }
+          }
+        }
       }
     },
     "switch": {
       "scheduler_enabled": {
         "name": "Scheduler enabled"
+      },
+      "auto_mode": {
+        "name": "Auto mode"
+      }
+    },
+    "number": {
+      "run_hours": {
+        "name": "Auto hours per day"
+      },
+      "max_price": {
+        "name": "Auto max price"
+      },
+      "cheap_price": {
+        "name": "Auto cheap price"
       }
     }
   },

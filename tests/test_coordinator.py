@@ -48,7 +48,7 @@ async def test_fetches_today_and_uses_vat(
     mock_nordpool_service: None,
     nordpool_prices: dict[date, list],
 ) -> None:
-    """Prices are fetched, converted to currency/kWh, and VAT is applied."""
+    """Prices are fetched, converted to cents/kWh, and VAT is applied."""
     today = datetime.now(OSLO_TZ).date()
     nordpool_prices[today] = hourly_day_prices(today, lambda _h: 100.0)  # 100 EUR/MWh
 
@@ -56,10 +56,9 @@ async def test_fetches_today_and_uses_vat(
     await coordinator.async_config_entry_first_refresh()
     coordinator._cancel_timers()
 
-    # 100 EUR/MWh -> 0.1 EUR/kWh, +21% VAT -> 0.121
+    # 100 EUR/MWh -> 10 c/kWh, +21% VAT -> 12.1
     price = coordinator.get_price(_first_known_slot(coordinator))
-    assert price is not None
-    assert 0.1 <= price <= 0.13
+    assert price == pytest.approx(12.1)
 
 
 def _first_known_slot(coordinator: NordpoolSchedulerPriceCoordinator) -> datetime:
@@ -173,7 +172,7 @@ async def test_vat_percent_from_options(
     coordinator._cancel_timers()
 
     price = coordinator.get_price(_first_known_slot(coordinator))
-    assert price == pytest.approx(0.1)
+    assert price == pytest.approx(10.0)
 
 
 async def test_unavailable_error_is_a_home_assistant_error() -> None:

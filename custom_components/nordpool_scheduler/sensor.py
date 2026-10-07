@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
+from homeassistant.components.sensor import SensorEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_AREA
+from .const import CONF_AREA, PRICE_UNIT
 from .coordinator import NordpoolSchedulerPriceCoordinator
 from .entity import build_device_info
 from .util import slot_start_for
@@ -32,19 +32,18 @@ async def async_setup_entry(
 class NordpoolSchedulerPriceSensor(
     CoordinatorEntity[NordpoolSchedulerPriceCoordinator], SensorEntity
 ):
-    """The current electricity price, including VAT, for this scheduler."""
+    """The current electricity price in cents/kWh, VAT included."""
 
-    _attr_device_class = SensorDeviceClass.MONETARY
     _attr_has_entity_name = True
     _attr_translation_key = "electricity_price"
-    _attr_suggested_display_precision = 4
+    _attr_native_unit_of_measurement = PRICE_UNIT
+    _attr_suggested_display_precision = 2
 
     def __init__(self, entry: NordpoolSchedulerConfigEntry) -> None:
         """Initialize."""
         super().__init__(entry.runtime_data.coordinator)
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_electricity_price"
-        self._attr_native_unit_of_measurement = f"{self.coordinator.currency}/kWh"
         self._attr_device_info = build_device_info(entry)
 
     @property

@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.nordpool_scheduler import _async_apply_slot
 from custom_components.nordpool_scheduler.const import (
     CONF_AREA,
     CONF_DEFAULT_STATE,
@@ -18,6 +17,7 @@ from custom_components.nordpool_scheduler.const import (
     DOMAIN,
     STATE_DEFAULT_OFF,
 )
+from custom_components.nordpool_scheduler.control import async_apply_slot
 from custom_components.nordpool_scheduler.util import slot_start_for
 
 from .conftest import AREA, setup_scheduler_entry
@@ -71,7 +71,7 @@ async def test_scheduling_turns_on_each_supported_domain(
 
     now = datetime.now(UTC)
     entry.runtime_data.schedule.set_slot(slot_start_for(now), state=True)
-    await _async_apply_slot(hass, entry, now)
+    await async_apply_slot(hass, entry, now)
     await hass.async_block_till_done()
 
     assert calls == ["turn_on"]
