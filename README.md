@@ -60,7 +60,7 @@ Add one scheduler per entity. An entity can only have one scheduler.
 |---|---|---|
 | Target entity | | The entity to control |
 | Default state | Default OFF | The state for slots with no override while auto mode is off |
-| Manual toggles | Only act when the schedule changes | **Only act when the schedule changes** leaves an entity you toggled by hand alone until the schedule wants something different. **Enforce every 15 minutes** re-applies the schedule at every slot. |
+| Manual toggles | Only act when the schedule changes | **Only act when the schedule changes** leaves an entity you toggled by hand alone until the schedule wants something different or you change the current slot. **Enforce every 15 minutes** re-applies the schedule at every slot. |
 | VAT percentage | 21 | Added on top of the Nord Pool price |
 
 ## Entities
@@ -94,7 +94,7 @@ Turning auto mode on or off, or changing one of its numbers, takes effect for th
 ## How it works
 
 - The day is split into 15-minute slots. A slot is either overridden **on**, overridden **off**, or follows auto mode's pick when auto mode is on and the default state otherwise.
-- At 00, 15, 30 and 45 past each hour the scheduler works out what the current slot wants and turns the target on or off. Changing an override, auto mode or one of its numbers re-checks the current slot straight away.
+- At 00, 15, 30 and 45 past each hour the scheduler works out what the current slot wants and turns the target on or off. Changing an override, auto mode or one of its numbers re-checks the current slot straight away. Changing the current slot's override also switches the target to match it, even if you toggled the target by hand.
 - With **Only act when the schedule changes**, it only calls `turn_on` or `turn_off` when the wanted state differs from the previous slot's.
 - After a restart or reload it brings the target back in line with the current slot, switching it only if its state differs. A manual change that goes against the current slot is undone at that point.
 - A target that is `unavailable` or `unknown` is skipped for that slot.
