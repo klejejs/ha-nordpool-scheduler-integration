@@ -37,7 +37,12 @@ Or by hand:
 
 ## Configuration
 
-Go to **Settings** → **Devices & services** → **Add integration** → **Nordpool Scheduler**, then fill in:
+Go to **Settings** → **Devices & services** → **Add integration** → **Nordpool Scheduler**, then choose what to add:
+
+- **Scheduler** turns an entity on and off by price.
+- **Prices only** just supplies prices, for showing them on a dashboard with the [card](https://github.com/klejejs/ha-nordpool-scheduler-card). It only asks for the Nord Pool source and area, and creates only the price sensor, e.g. `sensor.nordpool_scheduler_prices_lv_electricity_price`. Each area can have one prices entry. **Configure** on it only changes the VAT percentage.
+
+A scheduler asks for:
 
 | Field | Description |
 |---|---|

@@ -195,3 +195,16 @@ def mock_config_entry(mock_nordpool_entry: MockConfigEntry) -> MockConfigEntry:
         unique_id="input_boolean.test_target",
         version=2,
     )
+
+
+@pytest.fixture
+def mock_prices_entry(mock_nordpool_entry: MockConfigEntry) -> MockConfigEntry:
+    """Return a mock prices-only config entry, which has no target entity."""
+    return MockConfigEntry(
+        domain=DOMAIN,
+        title="Nordpool Scheduler - Prices LV",
+        data={CONF_NORDPOOL_ENTRY_ID: mock_nordpool_entry.entry_id, CONF_AREA: AREA},
+        entry_id="prices_entry_id",
+        unique_id=f"prices_{mock_nordpool_entry.entry_id}_{AREA}",
+        version=2,
+    )

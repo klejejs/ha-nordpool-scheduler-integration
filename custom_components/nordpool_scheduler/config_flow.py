@@ -27,6 +27,7 @@ from .const import (
     STATE_DEFAULT_ON,
     SUPPORTED_DOMAINS,
 )
+from .util import is_prices_only
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,6 +60,14 @@ def _default_state_selector() -> selector.SelectSelector:
     )
 
 
+def _nordpool_entry_selector() -> selector.ConfigEntrySelector:
+    return selector.ConfigEntrySelector({"integration": NORDPOOL_DOMAIN})
+
+
+def _vat_percent_validator() -> vol.All:
+    return vol.All(vol.Coerce(float), vol.Range(min=0, max=100))
+
+
 def _control_mode_selector() -> selector.SelectSelector:
     return selector.SelectSelector(
         selector.SelectSelectorConfig(
@@ -78,13 +87,21 @@ class NordpoolSchedulerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(
         self,
+        _user_input: dict[str, Any] | None = None,
+    ) -> config_entries.ConfigFlowResult:
+        """Ask whether to add a scheduler or a prices-only entry."""
+        if not self.hass.config_entries.async_entries(NORDPOOL_DOMAIN):
+            return self.async_abort(reason="nordpool_not_configured")
+        return self.async_show_menu(
+            step_id="user", menu_options=["scheduler", "prices"]
+        )
+
+    async def async_step_scheduler(
+        self,
         user_input: dict[str, Any] | None = None,
     ) -> config_entries.ConfigFlowResult:
         """Collect the scheduler name, target entity and Nord Pool source."""
         errors: dict[str, str] = {}
-
-        if not self.hass.config_entries.async_entries(NORDPOOL_DOMAIN):
-            return self.async_abort(reason="nordpool_not_configured")
 
         if user_input is not None:
             if not self.hass.states.get(user_input[CONF_TARGET_ENTITY]):
@@ -100,15 +117,27 @@ class NordpoolSchedulerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required(
                     CONF_DEFAULT_STATE, default=STATE_DEFAULT_OFF
                 ): _default_state_selector(),
-                vol.Required(CONF_NORDPOOL_ENTRY_ID): selector.ConfigEntrySelector(
-                    {"integration": NORDPOOL_DOMAIN}
-                ),
+                vol.Required(CONF_NORDPOOL_ENTRY_ID): _nordpool_entry_selector(),
             },
         )
 
         return self.async_show_form(
-            step_id="user", data_schema=data_schema, errors=errors
+            step_id="scheduler", data_schema=data_schema, errors=errors
         )
+
+    async def async_step_prices(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> config_entries.ConfigFlowResult:
+        """Collect the Nord Pool source for a prices-only entry."""
+        if user_input is not None:
+            self._user_input = user_input
+            return await self.async_step_area()
+
+        data_schema = vol.Schema(
+            {vol.Required(CONF_NORDPOOL_ENTRY_ID): _nordpool_entry_selector()}
+        )
+        return self.async_show_form(step_id="prices", data_schema=data_schema)
 
     async def async_step_area(
         self,
@@ -129,14 +158,16 @@ class NordpoolSchedulerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             area = areas[0] if user_input is None else user_input[CONF_AREA]
             data = {**self._user_input, CONF_AREA: area}
 
-            target_entity = data[CONF_TARGET_ENTITY]
-            await self.async_set_unique_id(target_entity)
+            if CONF_TARGET_ENTITY in data:
+                unique_id = data[CONF_TARGET_ENTITY]
+                title = f"Nordpool Scheduler - {data[CONF_SCHEDULER_NAME]}"
+            else:
+                unique_id = f"prices_{data[CONF_NORDPOOL_ENTRY_ID]}_{area}"
+                title = f"Nordpool Scheduler - Prices {area}"
+            await self.async_set_unique_id(unique_id)
             self._abort_if_unique_id_configured()
 
-            return self.async_create_entry(
-                title=f"Nordpool Scheduler - {data[CONF_SCHEDULER_NAME]}",
-                data=data,
-            )
+            return self.async_create_entry(title=title, data=data)
 
         data_schema = vol.Schema(
             {
@@ -166,6 +197,9 @@ class NordpoolSchedulerOptionsFlowHandler(config_entries.OptionsFlowWithReload):
         user_input: dict[str, Any] | None = None,
     ) -> config_entries.ConfigFlowResult:
         """Manage the options."""
+        if is_prices_only(self.config_entry):
+            return await self.async_step_prices(user_input)
+
         errors: dict[str, str] = {}
         current = {**self.config_entry.data, **self.config_entry.options}
 
@@ -201,10 +235,29 @@ class NordpoolSchedulerOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                 vol.Required(
                     CONF_VAT_PERCENT,
                     default=current.get(CONF_VAT_PERCENT, DEFAULT_VAT_PERCENT),
-                ): vol.All(vol.Coerce(float), vol.Range(min=0, max=100)),
+                ): _vat_percent_validator(),
             },
         )
 
         return self.async_show_form(
             step_id="init", data_schema=data_schema, errors=errors
         )
+
+    async def async_step_prices(
+        self,
+        user_input: dict[str, Any] | None = None,
+    ) -> config_entries.ConfigFlowResult:
+        """Manage the options of a prices-only entry."""
+        if user_input is not None:
+            return self.async_create_entry(data=user_input)
+
+        current = {**self.config_entry.data, **self.config_entry.options}
+        data_schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_VAT_PERCENT,
+                    default=current.get(CONF_VAT_PERCENT, DEFAULT_VAT_PERCENT),
+                ): _vat_percent_validator(),
+            },
+        )
+        return self.async_show_form(step_id="prices", data_schema=data_schema)

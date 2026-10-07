@@ -3,6 +3,14 @@
     "step": {
       "user": {
         "title": "Nordpool Scheduler Setup",
+        "description": "Choose what to add",
+        "menu_options": {
+          "scheduler": "Scheduler: turn an entity on and off by price",
+          "prices": "Prices only: show Nord Pool prices without controlling anything"
+        }
+      },
+      "scheduler": {
+        "title": "Nordpool Scheduler Setup",
         "description": "Set up a new Nord Pool price-based scheduler for an entity",
         "data": {
           "scheduler_name": "Scheduler Name",
@@ -17,9 +25,19 @@
           "nordpool_config_entry_id": "The Nord Pool integration entry to price by"
         }
       },
+      "prices": {
+        "title": "Nord Pool Prices",
+        "description": "Add a price sensor for a Nord Pool area without controlling any entity",
+        "data": {
+          "nordpool_config_entry_id": "Nord Pool source"
+        },
+        "data_description": {
+          "nordpool_config_entry_id": "The Nord Pool integration entry to price by"
+        }
+      },
       "area": {
         "title": "Nord Pool Area",
-        "description": "Choose which area of the selected Nord Pool source to price this scheduler by",
+        "description": "Choose which area of the selected Nord Pool source to price by",
         "data": {
           "area": "Area"
         }
@@ -29,7 +47,7 @@
       "invalid_target": "The selected entity does not exist"
     },
     "abort": {
-      "already_configured": "This entity already has a scheduler",
+      "already_configured": "Already configured: an entity can only have one scheduler, and an area only one prices entry",
       "nordpool_not_configured": "Set up the Nord Pool integration first",
       "nordpool_no_areas": "The selected Nord Pool source has no areas configured"
     }
@@ -48,6 +66,15 @@
           "target_entity": "The entity to control (switch, input_boolean, light, fan, or climate)",
           "default_state": "Default state when no schedule override is set for a slot",
           "control_mode": "Whether to leave a manually-toggled entity alone until the schedule changes, or re-apply the schedule every 15 minutes",
+          "vat_percent": "Added on top of the Nord Pool price"
+        }
+      },
+      "prices": {
+        "title": "Nord Pool Prices Options",
+        "data": {
+          "vat_percent": "VAT percentage"
+        },
+        "data_description": {
           "vat_percent": "Added on top of the Nord Pool price"
         }
       }
@@ -105,11 +132,11 @@
     "slot_out_of_range": {
       "message": "Slot start {start} is outside the range of known prices"
     },
-    "entry_not_found": {
-      "message": "No Nordpool Scheduler with config entry ID {entry_id}"
-    },
     "entry_not_loaded": {
-      "message": "The Nordpool Scheduler {entry_id} is not loaded"
+      "message": "Nordpool Scheduler entry {entry_id} is not loaded"
+    },
+    "prices_only_entry": {
+      "message": "{title} only supplies prices and has no schedule"
     }
   },
   "services": {

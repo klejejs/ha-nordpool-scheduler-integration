@@ -27,6 +27,7 @@ from .control import async_apply_slot
 from .coordinator import NordpoolSchedulerPriceCoordinator
 from .schedule import ScheduleStore
 from .services import async_setup_services
+from .util import is_prices_only
 from .websocket_api import async_setup_websocket_api
 
 if TYPE_CHECKING:
@@ -43,6 +44,7 @@ PLATFORMS: list[Platform] = [
     Platform.SWITCH,
     Platform.NUMBER,
 ]
+PRICES_PLATFORMS: list[Platform] = [Platform.SENSOR]
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -130,6 +132,17 @@ async def async_setup_entry(
     runtime.refresh_auto(hass)
     entry.runtime_data = runtime
 
+    @callback
+    def _on_prices_updated() -> None:
+        runtime.refresh_auto(hass)
+        async_dispatcher_send(hass, runtime.update_signal)
+
+    entry.async_on_unload(coordinator.async_add_listener(_on_prices_updated))
+
+    if is_prices_only(entry):
+        await hass.config_entries.async_forward_entry_setups(entry, PRICES_PLATFORMS)
+        return True
+
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     async def _async_apply_initial_state(_event: object = None) -> None:
@@ -154,13 +167,6 @@ async def async_setup_entry(
         async_track_utc_time_change(hass, _on_tick, minute=[0, 15, 30, 45], second=0)
     )
 
-    @callback
-    def _on_prices_updated() -> None:
-        runtime.refresh_auto(hass)
-        async_dispatcher_send(hass, runtime.update_signal)
-
-    entry.async_on_unload(coordinator.async_add_listener(_on_prices_updated))
-
     return True
 
 
@@ -168,7 +174,8 @@ async def async_unload_entry(
     hass: HomeAssistant, entry: NordpoolSchedulerConfigEntry
 ) -> bool:
     """Unload a config entry."""
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    platforms = PRICES_PLATFORMS if is_prices_only(entry) else PLATFORMS
+    unload_ok = await hass.config_entries.async_unload_platforms(entry, platforms)
     if unload_ok:
         # A reload can otherwise race Store's delayed save and lose a
         # just-made schedule change.

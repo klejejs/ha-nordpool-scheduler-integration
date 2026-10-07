@@ -80,7 +80,7 @@ def _build_snapshot(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, Any]:
     coordinator = runtime.coordinator
     settings = {**entry.data, **entry.options}
     default_state = settings.get(CONF_DEFAULT_STATE, STATE_DEFAULT_OFF)
-    target_entity = settings[CONF_TARGET_ENTITY]
+    target_entity = settings.get(CONF_TARGET_ENTITY)
 
     window_start = local_midnight_today(hass)
     known_prices = coordinator.data or {}
@@ -108,7 +108,7 @@ def _build_snapshot(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, Any]:
         )
         cursor += timedelta(minutes=SLOT_MINUTES)
 
-    target_state = hass.states.get(target_entity)
+    target_state = hass.states.get(target_entity) if target_entity else None
 
     return {
         "config_entry_id": entry.entry_id,
