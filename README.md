@@ -97,7 +97,7 @@ Turning auto mode on or off, or changing one of its numbers, takes effect for th
 The average price sensors report what the target's running time has cost per kWh so far today, this week, this month and this year. Each slot's price counts for as long as the target was on during it. The periods follow Home Assistant's time zone, and weeks start on Monday.
 
 - The target counts as on in any state other than `off`, `unavailable` or `unknown`, whether the scheduler or someone else turned it on.
-- A sensor is unknown until the target has run in its period. Its `running_hours` attribute is how long the target ran, and `period_start` is the period's first day.
+- A sensor is unknown until the target has run in its period. Its `running_hours` attribute is how long the target ran in slots with a known price, and `period_start` is the period's first day.
 - A prices-only entry has no target, so its sensors are the plain average of every slot's price so far in the period.
 - Counting starts when the integration is installed or updated to this version. Time while Home Assistant is stopped isn't counted.
 - The totals behind the averages are kept on disk for 400 days.

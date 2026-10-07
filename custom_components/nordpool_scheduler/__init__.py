@@ -138,6 +138,9 @@ async def async_setup_entry(
 
     @callback
     def _on_prices_updated() -> None:
+        # The coordinator also calls this at every slot boundary, so the time
+        # since the last sample is counted before the update goes out.
+        stats.sample(dt_util.utcnow())
         runtime.refresh_auto(hass)
         async_dispatcher_send(hass, runtime.update_signal)
 

@@ -8,10 +8,7 @@ from typing import TYPE_CHECKING
 
 from homeassistant.core import CALLBACK_TYPE, Event, EventStateChangedData, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
-from homeassistant.helpers.event import (
-    async_track_state_change_event,
-    async_track_utc_time_change,
-)
+from homeassistant.helpers.event import async_track_state_change_event
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
@@ -82,40 +79,26 @@ class PriceStats:
 
     @callback
     def async_start(self, target_entity: str | None, signal: str) -> CALLBACK_TYPE:
-        """Start counting from now; return a callback that stops it."""
+        """Start counting from now and follow the target's state.
+
+        Returns a callback that stops following it. The caller also has to
+        call ``sample`` at every slot boundary, when the price changes.
+        """
         self._since = dt_util.utcnow()
         if target_entity is None:
             self._running = True
-            unsub_state: CALLBACK_TYPE | None = None
-        else:
-            self._running = is_running(self._hass.states.get(target_entity))
-
-            @callback
-            def _on_target_change(event: Event[EventStateChangedData]) -> None:
-                self.sample(dt_util.utcnow())
-                self._running = is_running(event.data["new_state"])
-                async_dispatcher_send(self._hass, signal)
-
-            unsub_state = async_track_state_change_event(
-                self._hass, [target_entity], _on_target_change
-            )
+            return lambda: None
+        self._running = is_running(self._hass.states.get(target_entity))
 
         @callback
-        def _on_tick(now: datetime) -> None:
-            self.sample(now)
+        def _on_target_change(event: Event[EventStateChangedData]) -> None:
+            self.sample(dt_util.utcnow())
+            self._running = is_running(event.data["new_state"])
             async_dispatcher_send(self._hass, signal)
 
-        unsub_tick = async_track_utc_time_change(
-            self._hass, _on_tick, minute=[0, 15, 30, 45], second=0
+        return async_track_state_change_event(
+            self._hass, [target_entity], _on_target_change
         )
-
-        @callback
-        def _stop() -> None:
-            unsub_tick()
-            if unsub_state is not None:
-                unsub_state()
-
-        return _stop
 
     def sample(self, now: datetime) -> None:
         """Count the time since the last sample if the target was running."""
