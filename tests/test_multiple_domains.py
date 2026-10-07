@@ -56,7 +56,6 @@ async def test_scheduling_turns_on_each_supported_domain(
             CONF_NORDPOOL_ENTRY_ID: mock_nordpool_entry.entry_id,
             CONF_AREA: AREA,
         },
-        version=2,
     )
     # Set up before registering the fakes: our own scheduler forwards to
     # Platform.SWITCH, which for the "switch" domain case would otherwise

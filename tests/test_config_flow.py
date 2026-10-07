@@ -218,7 +218,6 @@ async def test_options_flow_rejects_duplicate_target(
         },
         entry_id="other_scheduler_entry_id",
         unique_id=other_entity,
-        version=2,
     )
     await setup_scheduler_entry(hass, other_entry, nordpool_prices)
 
