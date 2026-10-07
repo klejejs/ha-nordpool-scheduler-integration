@@ -31,6 +31,7 @@ from .const import (
     SLOT_STATE_ON,
     STATE_DEFAULT_OFF,
 )
+from .stats import WINDOWS
 from .util import local_midnight_today, slot_start_for
 
 
@@ -72,6 +73,17 @@ def _build_auto_snapshot(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, A
         "max_price_entity": _entity_id_for(hass, "number", f"{entry_id}_max_price"),
         "cheap_price_entity": _entity_id_for(hass, "number", f"{entry_id}_cheap_price"),
     }
+
+
+def _build_averages(entry: ConfigEntry) -> dict[str, Any]:
+    """Return the average price and hours run for each stats window."""
+    stats = entry.runtime_data.stats
+    today = dt_util.now().date()
+    averages = {}
+    for window in WINDOWS:
+        price, hours = stats.average(window.start(today))
+        averages[window.key] = {"price": price, "running_hours": hours}
+    return averages
 
 
 def _build_snapshot(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, Any]:
@@ -121,6 +133,7 @@ def _build_snapshot(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, Any]:
         "now_slot_start": slot_start_for(dt_util.utcnow()).isoformat(),
         "target_state": target_state.state if target_state else None,
         "auto": _build_auto_snapshot(hass, entry),
+        "averages": _build_averages(entry),
         "slots": slots,
     }
 

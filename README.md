@@ -40,7 +40,7 @@ Or by hand:
 Go to **Settings** → **Devices & services** → **Add integration** → **Nordpool Scheduler**, then choose what to add:
 
 - **Scheduler** turns an entity on and off by price.
-- **Prices only** just supplies prices, for showing them on a dashboard with the [card](https://github.com/klejejs/ha-nordpool-scheduler-card). It only asks for the Nord Pool source and area, and creates only the price sensor, e.g. `sensor.nordpool_scheduler_prices_lv_electricity_price`. Each area can have one prices entry. **Configure** on it only changes the VAT percentage.
+- **Prices only** just supplies prices, for showing them on a dashboard with the [card](https://github.com/klejejs/ha-nordpool-scheduler-card). It only asks for the Nord Pool source and area, and creates only price sensors: the current price, e.g. `sensor.nordpool_scheduler_prices_lv_electricity_price`, and the four [average price](#average-price) sensors. Each area can have one prices entry. **Configure** on it only changes the VAT percentage.
 
 A scheduler asks for:
 
@@ -65,11 +65,12 @@ Add one scheduler per entity. An entity can only have one scheduler.
 
 ## Entities
 
-Each scheduler creates one device with seven entities. For a scheduler named "Boiler":
+Each scheduler creates one device with eleven entities. For a scheduler named "Boiler":
 
 | Entity | Description |
 |---|---|
 | `sensor.nordpool_scheduler_boiler_electricity_price` | The current slot's price in cents (1/100 of your Nord Pool currency) per kWh, VAT included. Attributes: `area`, `vat_percent`. |
+| `sensor.nordpool_scheduler_boiler_average_price_today` | The average price while the target was on, in c/kWh. Also `_this_week`, `_this_month` and `_this_year`. See [Average price](#average-price). |
 | `binary_sensor.nordpool_scheduler_boiler_scheduled_on` | On when the schedule wants the target on for the current slot. Attributes: `target_entity`, `target_state`, and `source` (`override`, `auto` or `default`). |
 | `switch.nordpool_scheduler_boiler_scheduler_enabled` | Turn it off to pause the scheduler. The target is left as it is until you turn the switch back on. |
 | `switch.nordpool_scheduler_boiler_auto_mode` | Auto mode, off by default. See [Auto mode](#auto-mode). |
@@ -90,6 +91,16 @@ With auto mode on, the scheduler picks which slots run instead of using the defa
 - An override always wins over auto mode's pick.
 
 Turning auto mode on or off, or changing one of its numbers, takes effect for the current slot at once.
+
+## Average price
+
+The average price sensors report what the target's running time has cost per kWh so far today, this week, this month and this year. Each slot's price counts for as long as the target was on during it. The periods follow Home Assistant's time zone, and weeks start on Monday.
+
+- The target counts as on in any state other than `off`, `unavailable` or `unknown`, whether the scheduler or someone else turned it on.
+- A sensor is unknown until the target has run in its period. Its `running_hours` attribute is how long the target ran, and `period_start` is the period's first day.
+- A prices-only entry has no target, so its sensors are the plain average of every slot's price so far in the period.
+- Counting starts when the integration is installed or updated to this version. Time while Home Assistant is stopped isn't counted.
+- The totals behind the averages are kept on disk for 400 days.
 
 ## How it works
 

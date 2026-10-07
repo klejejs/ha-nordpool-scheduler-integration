@@ -1,5 +1,19 @@
 {
   "entity": {
+    "sensor": {
+      "average_price_today": {
+        "default": "mdi:cash-clock"
+      },
+      "average_price_week": {
+        "default": "mdi:cash-clock"
+      },
+      "average_price_month": {
+        "default": "mdi:cash-clock"
+      },
+      "average_price_year": {
+        "default": "mdi:cash-clock"
+      }
+    },
     "switch": {
       "scheduler_enabled": {
         "default": "mdi:calendar-clock"

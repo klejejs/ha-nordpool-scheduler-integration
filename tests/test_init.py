@@ -48,7 +48,7 @@ async def test_setup_creates_entities(
     entries = er.async_entries_for_config_entry(
         entity_registry, mock_config_entry.entry_id
     )
-    assert len(entries) == 7
+    assert len(entries) == 11
 
 
 async def test_unload_entry(
@@ -72,15 +72,19 @@ async def test_prices_entry_only_creates_price_sensor(
     mock_nordpool_service: None,
     nordpool_prices: dict[date, list],
 ) -> None:
-    """A prices entry gets the price sensor and never calls turn_on/turn_off."""
+    """A prices entry gets only price sensors and never calls turn_on/turn_off."""
     calls = async_capture_events(hass, EVENT_CALL_SERVICE)
     await _setup(hass, mock_prices_entry, nordpool_prices)
 
     entries = er.async_entries_for_config_entry(
         er.async_get(hass), mock_prices_entry.entry_id
     )
-    assert [entry.entity_id for entry in entries] == [
-        "sensor.nordpool_scheduler_prices_lv_electricity_price"
+    assert sorted(entry.entity_id for entry in entries) == [
+        "sensor.nordpool_scheduler_prices_lv_average_price_this_month",
+        "sensor.nordpool_scheduler_prices_lv_average_price_this_week",
+        "sensor.nordpool_scheduler_prices_lv_average_price_this_year",
+        "sensor.nordpool_scheduler_prices_lv_average_price_today",
+        "sensor.nordpool_scheduler_prices_lv_electricity_price",
     ]
     assert hass.states.get("sensor.nordpool_scheduler_prices_lv_electricity_price")
 

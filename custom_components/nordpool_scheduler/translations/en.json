@@ -88,6 +88,18 @@
     "sensor": {
       "electricity_price": {
         "name": "Electricity price"
+      },
+      "average_price_today": {
+        "name": "Average price today"
+      },
+      "average_price_week": {
+        "name": "Average price this week"
+      },
+      "average_price_month": {
+        "name": "Average price this month"
+      },
+      "average_price_year": {
+        "name": "Average price this year"
       }
     },
     "binary_sensor": {
