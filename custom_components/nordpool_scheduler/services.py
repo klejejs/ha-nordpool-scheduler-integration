@@ -100,6 +100,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
         now = dt_util.utcnow()
         earliest = slot_start_for(now)
         latest = earliest + timedelta(days=MAX_SLOT_LOOKAHEAD_DAYS)
+        touches_current = False
 
         for raw_slot in call.data[ATTR_SLOTS]:
             start = dt_util.as_utc(raw_slot[ATTR_START])
@@ -119,13 +120,14 @@ def async_setup_services(hass: HomeAssistant) -> None:
                     translation_placeholders={"start": start.isoformat()},
                 )
 
+            touches_current = touches_current or start == earliest
             state = raw_slot[ATTR_STATE]
             runtime.schedule.set_slot(
                 start,
                 state=None if state == SLOT_STATE_DEFAULT else state == SLOT_STATE_ON,
             )
 
-        await async_apply_now(hass, entry)
+        await async_apply_now(hass, entry, sync_target=touches_current)
 
     async def handle_clear_schedule(call: ServiceCall) -> None:
         entry = _scheduler_entry(hass, call.data[ATTR_CONFIG_ENTRY])

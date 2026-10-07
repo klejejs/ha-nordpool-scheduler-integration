@@ -31,19 +31,28 @@ _LOGGER = logging.getLogger(__name__)
 
 
 async def async_apply_now(
-    hass: HomeAssistant, entry: NordpoolSchedulerConfigEntry
+    hass: HomeAssistant,
+    entry: NordpoolSchedulerConfigEntry,
+    *,
+    sync_target: bool = False,
 ) -> None:
     """Push the change to listeners and apply the current slot straight away."""
     async_dispatcher_send(hass, entry.runtime_data.update_signal)
-    await async_apply_slot(hass, entry, dt_util.utcnow())
+    await async_apply_slot(hass, entry, dt_util.utcnow(), sync_target=sync_target)
 
 
 async def async_apply_slot(
     hass: HomeAssistant,
     entry: NordpoolSchedulerConfigEntry,
     now: datetime,
+    *,
+    sync_target: bool = False,
 ) -> None:
-    """Turn the target entity on or off for the slot containing ``now``."""
+    """Turn the target entity on or off for the slot containing ``now``.
+
+    ``sync_target`` switches the target whenever its state differs from the
+    slot's, even in on_change mode after a manual toggle.
+    """
     runtime = entry.runtime_data
     if not runtime.enabled:
         return
@@ -63,9 +72,9 @@ async def async_apply_slot(
     runtime.schedule.prune_ended(now)
 
     control_mode = settings.get(CONF_CONTROL_MODE)
-    if runtime.last_desired_state is None:
-        # First run since setup: there is no previous slot to compare with,
-        # so only call the target if it doesn't already match the schedule.
+    if runtime.last_desired_state is None or sync_target:
+        # First run since setup, or the current slot was just edited: only
+        # call the target if it doesn't already match the schedule.
         currently_on = target_state.state != STATE_OFF
         should_call = currently_on != desired_on
     else:
@@ -93,6 +102,10 @@ async def async_apply_slot(
             _LOGGER.warning(
                 "Could not set %s to %s: %s", target_entity, desired_on, err
             )
+            if sync_target:
+                # The marker may already match the slot, which would stop
+                # on_change mode retrying; compare with the target instead.
+                runtime.last_desired_state = None
         else:
             runtime.last_desired_state = desired_on
             _LOGGER.debug(

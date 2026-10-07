@@ -16,6 +16,7 @@ from .conftest import OSLO_TZ
 from .conftest import setup_scheduler_entry as _setup
 
 if TYPE_CHECKING:
+    from freezegun.api import FrozenDateTimeFactory
     from homeassistant.core import HomeAssistant
     from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -62,6 +63,45 @@ async def test_set_slots_and_clear(
         blocking=True,
     )
     assert entry.runtime_data.schedule.as_dict() == {}
+
+
+async def test_set_slots_on_current_slot_syncs_target(
+    hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """Editing the current slot undoes a manual toggle; a later slot doesn't."""
+    await _setup(hass, mock_config_entry, nordpool_prices)
+    now_slot = slot_start_for(datetime.now(OSLO_TZ))
+    next_slot = now_slot + timedelta(minutes=15)
+    hass.states.async_set(mock_target, "on")
+
+    await hass.services.async_call(
+        DOMAIN,
+        "set_slots",
+        {
+            "config_entry": mock_config_entry.entry_id,
+            "slots": [{"start": next_slot.isoformat(), "state": "off"}],
+        },
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(mock_target).state == "on"
+
+    await hass.services.async_call(
+        DOMAIN,
+        "set_slots",
+        {
+            "config_entry": mock_config_entry.entry_id,
+            "slots": [{"start": now_slot.isoformat(), "state": "off"}],
+        },
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+    assert hass.states.get(mock_target).state == "off"
 
 
 async def test_set_slots_rejects_unaligned_start(
