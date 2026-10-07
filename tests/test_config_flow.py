@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import voluptuous_serialize
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.helpers import config_validation as cv
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.nordpool_scheduler.const import (
@@ -29,6 +31,35 @@ if TYPE_CHECKING:
     from homeassistant.data_entry_flow import FlowResult
 
 
+# Selectors the frontend has no empty initial value for. A required field
+# using one without a default makes the form throw instead of rendering.
+_NO_INITIAL_VALUE_SELECTORS = {
+    "app",
+    "assist_pipeline",
+    "backup_location",
+    "config_entry",
+    "conversation_agent",
+    "floor",
+    "location",
+    "navigation",
+    "statistic",
+    "timezone",
+    "tts",
+}
+
+
+def _assert_form_renders(result: FlowResult) -> None:
+    """Fail if the frontend couldn't build initial data for the form."""
+    fields = voluptuous_serialize.convert(
+        result["data_schema"], custom_serializer=cv.custom_serializer
+    )
+    for field in fields:
+        if not field.get("required") or "default" in field:
+            continue
+        selector_type = next(iter(field.get("selector", {})), None)
+        assert selector_type not in _NO_INITIAL_VALUE_SELECTORS, field["name"]
+
+
 async def _start_flow(hass: HomeAssistant, entry_type: str) -> FlowResult:
     """Start a user flow and pick ``entry_type`` from the menu."""
     result = await hass.config_entries.flow.async_init(
@@ -47,6 +78,7 @@ async def test_full_flow_single_area(
     result = await _start_flow(hass, "scheduler")
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "scheduler"
+    _assert_form_renders(result)
 
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
@@ -82,6 +114,7 @@ async def test_flow_multi_area_requires_selection(
     )
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "area"
+    _assert_form_renders(result)
 
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {"area": "LT"}
@@ -151,6 +184,7 @@ async def test_options_flow_updates_settings(
 
     result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
     assert result["type"] is FlowResultType.FORM
+    _assert_form_renders(result)
 
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
@@ -283,6 +317,7 @@ async def test_prices_flow_creates_entry_without_target(
     result = await _start_flow(hass, "prices")
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "prices"
+    _assert_form_renders(result)
 
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {CONF_NORDPOOL_ENTRY_ID: mock_nordpool_entry.entry_id}
@@ -324,6 +359,7 @@ async def test_prices_options_flow_only_sets_vat(
     result = await hass.config_entries.options.async_init(mock_prices_entry.entry_id)
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "prices"
+    _assert_form_renders(result)
 
     result = await hass.config_entries.options.async_configure(
         result["flow_id"], {CONF_VAT_PERCENT: 0}
@@ -333,3 +369,68 @@ async def test_prices_options_flow_only_sets_vat(
 
     assert mock_prices_entry.options == {CONF_VAT_PERCENT: 0}
     assert mock_prices_entry.state.name == "LOADED"
+
+
+async def test_prices_flow_preselects_first_source_and_allows_another(
+    hass: HomeAssistant, mock_nordpool_entry: MockConfigEntry
+) -> None:
+    """The source defaults to the first Nord Pool entry; any other can be picked."""
+    second = MockConfigEntry(
+        domain="nordpool", data={"areas": ["EE"], "currency": "EUR"}
+    )
+    second.add_to_hass(hass)
+
+    result = await _start_flow(hass, "prices")
+    default = next(
+        key.default()
+        for key in result["data_schema"].schema
+        if key == CONF_NORDPOOL_ENTRY_ID
+    )
+    assert default == mock_nordpool_entry.entry_id
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_NORDPOOL_ENTRY_ID: second.entry_id}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert result["data"] == {CONF_NORDPOOL_ENTRY_ID: second.entry_id, CONF_AREA: "EE"}
+
+
+async def test_flow_aborts_if_nordpool_removed_mid_flow(
+    hass: HomeAssistant, mock_nordpool_entry: MockConfigEntry
+) -> None:
+    """Removing the only Nord Pool entry after the menu aborts, not crashes."""
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_USER}
+    )
+    await hass.config_entries.async_remove(mock_nordpool_entry.entry_id)
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "prices"}
+    )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "nordpool_not_configured"
+
+
+async def test_flow_error_keeps_entered_values(
+    hass: HomeAssistant, mock_nordpool_entry: MockConfigEntry
+) -> None:
+    """A rejected target re-shows the form with what the user entered."""
+    second = MockConfigEntry(
+        domain="nordpool", data={"areas": ["EE"], "currency": "EUR"}
+    )
+    second.add_to_hass(hass)
+    entered = {
+        CONF_SCHEDULER_NAME: "Test",
+        CONF_TARGET_ENTITY: "input_boolean.gone",
+        CONF_DEFAULT_STATE: "on",
+        CONF_NORDPOOL_ENTRY_ID: second.entry_id,
+    }
+
+    result = await _start_flow(hass, "scheduler")
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], entered)
+    assert result["errors"] == {"base": "invalid_target"}
+    suggested = {
+        str(key): key.description["suggested_value"]
+        for key in result["data_schema"].schema
+    }
+    assert suggested == entered
