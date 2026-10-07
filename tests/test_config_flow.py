@@ -409,3 +409,28 @@ async def test_flow_aborts_if_nordpool_removed_mid_flow(
     )
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "nordpool_not_configured"
+
+
+async def test_flow_error_keeps_entered_values(
+    hass: HomeAssistant, mock_nordpool_entry: MockConfigEntry
+) -> None:
+    """A rejected target re-shows the form with what the user entered."""
+    second = MockConfigEntry(
+        domain="nordpool", data={"areas": ["EE"], "currency": "EUR"}
+    )
+    second.add_to_hass(hass)
+    entered = {
+        CONF_SCHEDULER_NAME: "Test",
+        CONF_TARGET_ENTITY: "input_boolean.gone",
+        CONF_DEFAULT_STATE: "on",
+        CONF_NORDPOOL_ENTRY_ID: second.entry_id,
+    }
+
+    result = await _start_flow(hass, "scheduler")
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], entered)
+    assert result["errors"] == {"base": "invalid_target"}
+    suggested = {
+        str(key): key.description["suggested_value"]
+        for key in result["data_schema"].schema
+    }
+    assert suggested == entered

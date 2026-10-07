@@ -133,7 +133,9 @@ class NordpoolSchedulerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         )
 
         return self.async_show_form(
-            step_id="scheduler", data_schema=data_schema, errors=errors
+            step_id="scheduler",
+            data_schema=self.add_suggested_values_to_schema(data_schema, user_input),
+            errors=errors,
         )
 
     async def async_step_prices(
