@@ -3,7 +3,7 @@ colorlog==6.9.0
 pytest>=7.4.0
 pytest-asyncio>=0.21.0
 pytest-cov>=4.1.0
-pytest-homeassistant-custom-component>=0.13.0
+pytest-homeassistant-custom-component==0.13.336
 aiohttp>=3.8.0
 # The core nordpool integration is a manifest dependency; tests load it for
 # real (see conftest.py's mock_nordpool_entry/_stub_real_nordpool_component).
