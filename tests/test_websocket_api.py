@@ -47,6 +47,8 @@ async def test_subscribe_sends_snapshot(
     )
     assert current["price"] is not None
     assert current["effective"] == "off"
+    assert set(snapshot["averages"]) == {"today", "week", "month", "year"}
+    assert snapshot["averages"]["today"] == {"price": None, "running_hours": 0.0}
 
 
 async def test_subscribe_pushes_update_on_schedule_change(

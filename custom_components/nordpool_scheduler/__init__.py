@@ -15,6 +15,7 @@ from homeassistant.util import dt as dt_util
 from .auto import select_auto_slots
 from .const import (
     CONF_DEFAULT_STATE,
+    CONF_TARGET_ENTITY,
     DEFAULT_RUN_HOURS,
     DOMAIN,
     SLOT_SOURCE_AUTO,
@@ -26,6 +27,7 @@ from .control import async_apply_slot
 from .coordinator import NordpoolSchedulerPriceCoordinator
 from .schedule import ScheduleStore
 from .services import async_setup_services
+from .stats import PriceStats
 from .util import is_prices_only
 from .websocket_api import async_setup_websocket_api
 
@@ -54,6 +56,7 @@ class NordpoolSchedulerRuntimeData:
 
     coordinator: NordpoolSchedulerPriceCoordinator
     schedule: ScheduleStore
+    stats: PriceStats
     entry_id: str
     default_on: bool = False
     enabled: bool = True
@@ -119,10 +122,14 @@ async def async_setup_entry(
     schedule = ScheduleStore(hass, entry.entry_id)
     await schedule.async_load()
 
+    stats = PriceStats(hass, entry.entry_id, coordinator.get_price)
+    await stats.async_load()
+
     settings = {**entry.data, **entry.options}
     runtime = NordpoolSchedulerRuntimeData(
         coordinator=coordinator,
         schedule=schedule,
+        stats=stats,
         entry_id=entry.entry_id,
         default_on=settings.get(CONF_DEFAULT_STATE) == STATE_DEFAULT_ON,
     )
@@ -131,10 +138,16 @@ async def async_setup_entry(
 
     @callback
     def _on_prices_updated() -> None:
+        # The coordinator also calls this at every slot boundary, so the time
+        # since the last sample is counted before the update goes out.
+        stats.sample(dt_util.utcnow())
         runtime.refresh_auto(hass)
         async_dispatcher_send(hass, runtime.update_signal)
 
     entry.async_on_unload(coordinator.async_add_listener(_on_prices_updated))
+    entry.async_on_unload(
+        stats.async_start(settings.get(CONF_TARGET_ENTITY), runtime.update_signal)
+    )
 
     if is_prices_only(entry):
         await hass.config_entries.async_forward_entry_setups(entry, PRICES_PLATFORMS)
@@ -174,7 +187,10 @@ async def async_unload_entry(
     platforms = PRICES_PLATFORMS if is_prices_only(entry) else PLATFORMS
     unload_ok = await hass.config_entries.async_unload_platforms(entry, platforms)
     if unload_ok:
-        # A reload can otherwise race Store's delayed save and lose a
-        # just-made schedule change.
-        await entry.runtime_data.schedule.async_flush()
+        # A reload can otherwise race Store's delayed saves and lose a
+        # just-made schedule change or the time counted since the last tick.
+        runtime = entry.runtime_data
+        await runtime.schedule.async_flush()
+        runtime.stats.sample(dt_util.utcnow())
+        await runtime.stats.async_flush()
     return unload_ok
