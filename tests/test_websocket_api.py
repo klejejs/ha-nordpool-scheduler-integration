@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.util import dt as dt_util
 
+from .conftest import OSLO_TZ, hourly_day_prices
 from .conftest import setup_scheduler_entry as _setup
 
 if TYPE_CHECKING:
@@ -131,3 +133,34 @@ async def test_subscribe_prices_entry_has_no_target(
     assert snapshot["target_entity"] is None
     assert snapshot["target_state"] is None
     assert any(slot["price"] is not None for slot in snapshot["slots"])
+
+
+async def test_snapshot_stops_at_end_of_local_tomorrow(
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """East of CET, Nord Pool's tomorrow runs past local midnight; that tail is cut."""
+    await hass.config.async_set_time_zone("Europe/Riga")
+    tomorrow = datetime.now(OSLO_TZ).date() + timedelta(days=1)
+    nordpool_prices[tomorrow] = hourly_day_prices(tomorrow)
+    await _setup(hass, mock_config_entry, nordpool_prices)
+
+    client = await hass_ws_client(hass)
+    await client.send_json(
+        {
+            "id": 1,
+            "type": "nordpool_scheduler/subscribe",
+            "entity_id": "sensor.nordpool_scheduler_test_electricity_price",
+        }
+    )
+    assert (await client.receive_json())["success"]
+
+    slots = (await client.receive_json())["event"]["slots"]
+    riga = dt_util.get_time_zone("Europe/Riga")
+    first_start = datetime.fromisoformat(slots[0]["start"]).astimezone(riga)
+    last_end = datetime.fromisoformat(slots[-1]["end"]).astimezone(riga)
+    assert first_start.time() == last_end.time() == datetime.min.time()
+    assert last_end.date() == first_start.date() + timedelta(days=2)

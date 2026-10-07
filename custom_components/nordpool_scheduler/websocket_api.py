@@ -95,11 +95,7 @@ def _build_snapshot(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, Any]:
     target_entity = settings.get(CONF_TARGET_ENTITY)
 
     window_start = local_midnight_today(hass)
-    known_prices = coordinator.data or {}
     window_end = window_start + timedelta(days=MAX_SLOT_LOOKAHEAD_DAYS)
-    if known_prices:
-        latest_known_end = max(known_prices) + timedelta(minutes=SLOT_MINUTES)
-        window_end = max(window_end, latest_known_end)
 
     slots: list[dict[str, Any]] = []
     cursor = window_start
