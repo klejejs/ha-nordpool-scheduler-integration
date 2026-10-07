@@ -102,6 +102,10 @@ async def async_apply_slot(
             _LOGGER.warning(
                 "Could not set %s to %s: %s", target_entity, desired_on, err
             )
+            if sync_target:
+                # The marker may already match the slot, which would stop
+                # on_change mode retrying; compare with the target instead.
+                runtime.last_desired_state = None
         else:
             runtime.last_desired_state = desired_on
             _LOGGER.debug(

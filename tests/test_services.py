@@ -16,6 +16,7 @@ from .conftest import OSLO_TZ
 from .conftest import setup_scheduler_entry as _setup
 
 if TYPE_CHECKING:
+    from freezegun.api import FrozenDateTimeFactory
     from homeassistant.core import HomeAssistant
     from pytest_homeassistant_custom_component.common import MockConfigEntry
 
@@ -66,6 +67,7 @@ async def test_set_slots_and_clear(
 
 async def test_set_slots_on_current_slot_syncs_target(
     hass: HomeAssistant,
+    freezer: FrozenDateTimeFactory,
     mock_config_entry: MockConfigEntry,
     mock_nordpool_service: None,
     mock_target: str,

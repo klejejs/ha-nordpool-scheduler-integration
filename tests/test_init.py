@@ -263,6 +263,36 @@ async def test_on_change_mode_retries_after_target_handler_error(
     assert runtime.last_desired_state is True
 
 
+async def test_failed_sync_retries_on_next_tick(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """A failed sync to the current slot is retried even if the slot is unchanged."""
+    target_entity = mock_config_entry.data[CONF_TARGET_ENTITY]
+    hass.states.async_set(target_entity, "off")
+    await _setup(hass, mock_config_entry, nordpool_prices)
+    entry = hass.config_entries.async_get_entry(mock_config_entry.entry_id)
+    runtime = entry.runtime_data
+    assert runtime.last_desired_state is False
+    hass.states.async_set(target_entity, "on")
+
+    # input_boolean.turn_off isn't registered yet, so the sync fails.
+    now = datetime.now(UTC)
+    await async_apply_slot(hass, entry, now, sync_target=True)
+    await hass.async_block_till_done()
+
+    calls: list[str] = []
+    hass.services.async_register(
+        "input_boolean", "turn_off", lambda call: calls.append(call.service)
+    )
+    await async_apply_slot(hass, entry, now)
+    await hass.async_block_till_done()
+    assert calls == ["turn_off"]
+    assert runtime.last_desired_state is False
+
+
 async def test_enforce_mode_calls_every_slot(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
