@@ -83,6 +83,7 @@ async def async_apply_slot(
                 domain,
                 SERVICE_TURN_ON if desired_on else SERVICE_TURN_OFF,
                 {ATTR_ENTITY_ID: target_entity},
+                blocking=True,
             )
         except HomeAssistantError as err:
             # A failed call here must not fail entry setup, or abort a

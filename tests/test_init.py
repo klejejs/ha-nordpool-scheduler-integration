@@ -187,6 +187,48 @@ async def test_on_change_mode_retries_after_failed_call(
     assert runtime.last_desired_state is True
 
 
+async def test_on_change_mode_retries_after_target_handler_error(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """An error raised inside the target's own handler is caught and retried.
+
+    Regression test: the target's service was called without blocking, so
+    an error from its handler escaped the try and the state was marked as
+    applied before the call had gone through.
+    """
+    from homeassistant.exceptions import HomeAssistantError
+
+    target_entity = mock_config_entry.data[CONF_TARGET_ENTITY]
+    hass.states.async_set(target_entity, "off")
+    await _setup(hass, mock_config_entry, nordpool_prices)
+    entry = hass.config_entries.async_get_entry(mock_config_entry.entry_id)
+    runtime = entry.runtime_data
+
+    async def _failing_turn_on(_call) -> None:
+        msg = "device offline"
+        raise HomeAssistantError(msg)
+
+    hass.services.async_register("input_boolean", "turn_on", _failing_turn_on)
+    now = datetime.now(UTC)
+    runtime.schedule.set_slot(_slot_start(now), state=True)
+
+    await async_apply_slot(hass, entry, now)
+    await hass.async_block_till_done()
+    assert runtime.last_desired_state is False
+
+    calls: list[str] = []
+    hass.services.async_register(
+        "input_boolean", "turn_on", lambda call: calls.append(call.service)
+    )
+    await async_apply_slot(hass, entry, now)
+    await hass.async_block_till_done()
+    assert calls == ["turn_on"]
+    assert runtime.last_desired_state is True
+
+
 async def test_enforce_mode_calls_every_slot(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
