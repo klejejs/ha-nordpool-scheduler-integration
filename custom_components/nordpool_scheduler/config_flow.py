@@ -79,7 +79,7 @@ def _control_mode_selector() -> selector.SelectSelector:
 class NordpoolSchedulerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Nordpool Scheduler."""
 
-    VERSION = 2
+    VERSION = 1
 
     def __init__(self) -> None:
         """Initialize the flow."""

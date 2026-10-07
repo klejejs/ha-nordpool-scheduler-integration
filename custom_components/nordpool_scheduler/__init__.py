@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -35,8 +34,6 @@ if TYPE_CHECKING:
 
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.helpers.typing import ConfigType
-
-_LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [
     Platform.SENSOR,
@@ -181,25 +178,3 @@ async def async_unload_entry(
         # just-made schedule change.
         await entry.runtime_data.schedule.async_flush()
     return unload_ok
-
-
-async def async_migrate_entry(
-    _hass: HomeAssistant, entry: NordpoolSchedulerConfigEntry
-) -> bool:
-    """Migrate an old config entry.
-
-    Version 1 entries priced from a CSV feed and had no Nord Pool config
-    entry or area to price by; that can't be inferred automatically. Ask
-    the user to remove and re-add the scheduler, picking a Nord Pool
-    source, instead of leaving it half-migrated.
-    """
-    if entry.version == 1:
-        _LOGGER.error(
-            "Nordpool Scheduler entry %s was created before this integration used "
-            "the Nord Pool integration for prices. It can't be migrated "
-            "automatically: please remove it and add it again, selecting a Nord "
-            "Pool config entry",
-            entry.title,
-        )
-        return False
-    return True

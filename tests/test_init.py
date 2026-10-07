@@ -1,4 +1,4 @@
-"""Tests for Nordpool Scheduler setup, unload, migration and slot handling."""
+"""Tests for Nordpool Scheduler setup, unload and slot handling."""
 
 from __future__ import annotations
 
@@ -93,25 +93,6 @@ async def test_prices_entry_only_creates_price_sensor(
     assert await hass.config_entries.async_unload(mock_prices_entry.entry_id)
     await hass.async_block_till_done()
     assert mock_prices_entry.state.name == "NOT_LOADED"
-
-
-async def test_migrate_v1_entry_fails(hass: HomeAssistant) -> None:
-    """A pre-rewrite (CSV-based) entry can't be migrated automatically."""
-    old_entry = MockConfigEntry(
-        domain=DOMAIN,
-        title="Nordpool Scheduler - Old",
-        data={
-            "scheduler_name": "Old",
-            "target_switch": "switch.old",
-            "default_state": "off",
-        },
-        version=1,
-    )
-    old_entry.add_to_hass(hass)
-
-    assert not await hass.config_entries.async_setup(old_entry.entry_id)
-    await hass.async_block_till_done()
-    assert old_entry.state.name == "MIGRATION_ERROR"
 
 
 def test_config_schema_allows_empty_config() -> None:

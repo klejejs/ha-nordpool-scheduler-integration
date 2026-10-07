@@ -132,10 +132,6 @@ data:
 
 `config_entry` is the scheduler's config entry ID. Pick the scheduler from the dropdown in the action editor and switch to YAML to see it.
 
-## Upgrading from 1.x
-
-Version 1 read prices from a CSV feed rather than the Nord Pool integration, and its schedulers can't be migrated automatically. After upgrading, set up the Nord Pool integration, then remove each old scheduler and add it again.
-
 ## Development
 
 The repository includes a dev container with Python 3.13.
