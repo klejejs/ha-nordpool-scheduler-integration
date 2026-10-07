@@ -14,7 +14,7 @@ Pair it with the [Nordpool Scheduler Card](https://github.com/klejejs/ha-nordpoo
 
 ## Requirements
 
-- Home Assistant 2025.10.1 or newer
+- Home Assistant 2026.6.0 or newer
 - The [Nord Pool integration](https://www.home-assistant.io/integrations/nordpool/), set up with the area you buy electricity in
 
 ## Installation
@@ -145,7 +145,7 @@ data:
 
 ## Development
 
-The repository includes a dev container with Python 3.13.
+The repository includes a dev container with Python 3.14.
 
 ```bash
 scripts/setup     # install requirements
