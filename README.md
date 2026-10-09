@@ -65,7 +65,7 @@ Add one scheduler per entity. An entity can only have one scheduler.
 
 ## Entities
 
-Each scheduler creates one device with twelve entities. For a scheduler named "Boiler":
+Each scheduler creates one device with sixteen entities. For a scheduler named "Boiler":
 
 | Entity | Description |
 |---|---|
@@ -95,7 +95,7 @@ With auto mode on, the scheduler picks which slots run instead of using the defa
 - A picked slot priced above **Auto max price** doesn't run, so on an expensive day the target can run for less than its hours.
 - Every slot at or below **Auto cheap price** runs, even past the hours.
 - With **Auto hour range** on, the hours are only picked between **Auto start time** and **Auto end time**, and every slot outside them is off. Cheap slots outside the range stay off too, unless **Auto cheap price all day** is on. An end time before the start time wraps past midnight, but each day is still picked on its own: 22:00 to 06:00 covers that day's 00:00 to 06:00 and 22:00 to midnight. Equal start and end times cover the whole day.
-- A day is only decided once every one of its slots has a price. Until then, for example tomorrow before Nord Pool publishes, its slots follow the default state.
+- A day is only decided once every one of its slots has a price. Until then, for example tomorrow before Nord Pool publishes, its slots follow the default state, except those outside an **Auto hour range**, which are off.
 - An override always wins over auto mode's pick.
 
 Turning auto mode on or off, or changing one of its settings, takes effect for the current slot at once.

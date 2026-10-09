@@ -147,6 +147,18 @@ def test_window_wraps_past_midnight() -> None:
     assert _on_indexes(decisions, DAY) == [4, 92]
 
 
+def test_incomplete_day_is_off_outside_the_window() -> None:
+    """A day not fully priced is only decided outside the window, as off."""
+    tomorrow = DAY + timedelta(days=1)
+    decisions = _select(
+        _day_prices(tomorrow, [1.0] * 40), window=(time(17, 0), time(23, 0))
+    )
+
+    assert not any(decisions.values())
+    decided = _on_indexes(dict.fromkeys(decisions, True), tomorrow)
+    assert decided == [i for i in range(96) if not 68 <= i < 92]
+
+
 def test_cheap_price_stays_in_the_window() -> None:
     """Cheap slots outside the window stay off unless cheap_all_day is set."""
     raw = [50.0] * 96
