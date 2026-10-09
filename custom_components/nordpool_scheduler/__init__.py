@@ -23,7 +23,7 @@ from .const import (
     SLOT_SOURCE_OVERRIDE,
     STATE_DEFAULT_ON,
 )
-from .control import async_apply_slot
+from .control import DesiredStateStore, async_apply_slot
 from .coordinator import NordpoolSchedulerPriceCoordinator
 from .schedule import ScheduleStore
 from .services import async_setup_services
@@ -57,6 +57,7 @@ class NordpoolSchedulerRuntimeData:
     coordinator: NordpoolSchedulerPriceCoordinator
     schedule: ScheduleStore
     stats: PriceStats
+    desired_state: DesiredStateStore
     entry_id: str
     default_on: bool = False
     enabled: bool = True
@@ -66,6 +67,7 @@ class NordpoolSchedulerRuntimeData:
     cheap_price: float = 0.0
     auto_slots: dict[datetime, bool] = field(default_factory=dict, repr=False)
     last_desired_state: bool | None = None
+    restored_desired_state: bool | None = None
     unsub_tick: CALLBACK_TYPE | None = field(default=None, repr=False)
 
     @property
@@ -125,13 +127,18 @@ async def async_setup_entry(
     stats = PriceStats(hass, entry.entry_id, coordinator.get_price)
     await stats.async_load()
 
+    desired_state = DesiredStateStore(hass, entry.entry_id)
+    restored_desired_state = await desired_state.async_load()
+
     settings = {**entry.data, **entry.options}
     runtime = NordpoolSchedulerRuntimeData(
         coordinator=coordinator,
         schedule=schedule,
         stats=stats,
+        desired_state=desired_state,
         entry_id=entry.entry_id,
         default_on=settings.get(CONF_DEFAULT_STATE) == STATE_DEFAULT_ON,
+        restored_desired_state=restored_desired_state,
     )
     runtime.refresh_auto(hass)
     entry.runtime_data = runtime
@@ -191,6 +198,7 @@ async def async_unload_entry(
         # just-made schedule change or the time counted since the last tick.
         runtime = entry.runtime_data
         await runtime.schedule.async_flush()
+        await runtime.desired_state.async_flush()
         runtime.stats.sample(dt_util.utcnow())
         await runtime.stats.async_flush()
     return unload_ok

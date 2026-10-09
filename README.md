@@ -110,7 +110,7 @@ The average price sensors report what the target's running time has cost per kWh
 - The day is split into 15-minute slots. A slot is either overridden **on**, overridden **off**, or follows auto mode's pick when auto mode is on and the default state otherwise.
 - At 00, 15, 30 and 45 past each hour the scheduler works out what the current slot wants and turns the target on or off. Changing an override, auto mode or one of its numbers re-checks the current slot straight away. Changing the current slot's override also switches the target to match it, even if you toggled the target by hand.
 - With **Only act when the schedule changes**, it only calls `turn_on` or `turn_off` when the wanted state differs from the previous slot's.
-- After a restart or reload it brings the target back in line with the current slot, switching it only if its state differs. A manual change that goes against the current slot is undone at that point.
+- After a restart or reload, **Only act when the schedule changes** picks up where it left off: the wanted state is saved on disk, and the target is only switched if the current slot wants something different from what it wanted before. A manual toggle survives the restart. On a first install, and in **Enforce every 15 minutes**, it brings the target back in line with the current slot, switching it only if its state differs.
 - A target that is `unavailable` or `unknown` is skipped for that slot.
 - Overrides are stored on disk and survive restarts. Overrides for slots that have ended are removed.
 - Prices are refreshed every hour, and again just after 13:00 CET when Nord Pool usually publishes the next day. Areas still on hourly prices have each hour's price copied to its four slots.

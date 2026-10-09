@@ -56,6 +56,7 @@ SLOT_STATES: Final = [SLOT_STATE_ON, SLOT_STATE_OFF, SLOT_STATE_DEFAULT]
 STORAGE_VERSION: Final = 1
 STORAGE_KEY_PREFIX: Final = f"{DOMAIN}.schedule"
 STATS_STORAGE_KEY_PREFIX: Final = f"{DOMAIN}.stats"
+DESIRED_STATE_STORAGE_KEY_PREFIX: Final = f"{DOMAIN}.desired_state"
 
 # How far back/forward of "now" a requested slot may be
 MAX_SLOT_LOOKAHEAD_DAYS: Final = 2
