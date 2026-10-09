@@ -65,13 +65,14 @@ Add one scheduler per entity. An entity can only have one scheduler.
 
 ## Entities
 
-Each scheduler creates one device with eleven entities. For a scheduler named "Boiler":
+Each scheduler creates one device with twelve entities. For a scheduler named "Boiler":
 
 | Entity | Description |
 |---|---|
 | `sensor.nordpool_scheduler_boiler_electricity_price` | The current slot's price in cents (1/100 of your Nord Pool currency) per kWh, VAT included. Attributes: `area`, `vat_percent`. |
 | `sensor.nordpool_scheduler_boiler_average_price_today` | The average price while the target was on, in c/kWh. Also `_this_week`, `_this_month` and `_this_year`. See [Average price](#average-price). |
 | `binary_sensor.nordpool_scheduler_boiler_scheduled_on` | On when the schedule wants the target on for the current slot. Attributes: `target_entity`, `target_state`, and `source` (`override`, `auto` or `default`). |
+| `sensor.nordpool_scheduler_boiler_schedule` | Disabled by default. Publishes what the card shows as its `schedule` attribute, for a [second instance](#another-home-assistant-instance) that mirrors this one. The state is the start of the current slot. |
 | `switch.nordpool_scheduler_boiler_scheduler_enabled` | Turn it off to pause the scheduler. The target is left as it is until you turn the switch back on. |
 | `switch.nordpool_scheduler_boiler_auto_mode` | Auto mode, off by default. See [Auto mode](#auto-mode). |
 | `number.nordpool_scheduler_boiler_auto_hours_per_day` | Hours a day auto mode runs the target, in 15-minute steps. Default 2. |
@@ -79,6 +80,8 @@ Each scheduler creates one device with eleven entities. For a scheduler named "B
 | `number.nordpool_scheduler_boiler_auto_cheap_price` | Auto mode also runs every slot at or below this price, in c/kWh. 0 turns it off. |
 
 The auto mode switch and numbers keep their values across restarts.
+
+A prices-only entry's schedule sensor works the same way.
 
 ## Auto mode
 
@@ -142,6 +145,23 @@ data:
 ```
 
 `config_entry` is the scheduler's config entry ID. Pick the scheduler from the dropdown in the action editor and switch to YAML to see it.
+
+## Another Home Assistant instance
+
+The card normally asks this integration for its data directly, so it only works on the instance the integration runs on. To show a scheduler on a second instance that mirrors this one with [Remote Home-Assistant](https://github.com/custom-components/remote_homeassistant), have it publish that data as an entity:
+
+1. On the instance that runs the scheduler, enable its **Schedule** sensor, e.g. `sensor.nordpool_scheduler_boiler_schedule`. It's a diagnostic entity, disabled by default.
+2. On the mirroring instance, make sure Remote Home-Assistant mirrors the scheduler's entities, and proxies `nordpool_scheduler.set_slots` with a service prefix. With `entity_prefix: darzs_`, use `service_prefix: darzs_` as well, so the card finds `nordpool_scheduler.darzs_set_slots` without being told.
+3. Point the card at the mirrored schedule sensor, e.g. `sensor.darzs_nordpool_scheduler_boiler_schedule`. See the card's README for the rest.
+
+The attribute stays under 4 KB and this instance's recorder leaves it out. The mirroring instance doesn't know that, so exclude the mirrored sensor from its recorder:
+
+```yaml
+recorder:
+  exclude:
+    entity_globs:
+      - sensor.darzs_nordpool_scheduler_*_schedule
+```
 
 ## Development
 
