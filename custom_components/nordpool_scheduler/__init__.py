@@ -127,10 +127,12 @@ async def async_setup_entry(
     stats = PriceStats(hass, entry.entry_id, coordinator.get_price)
     await stats.async_load()
 
-    desired_state = DesiredStateStore(hass, entry.entry_id)
+    settings = {**entry.data, **entry.options}
+    desired_state = DesiredStateStore(
+        hass, entry.entry_id, settings.get(CONF_TARGET_ENTITY)
+    )
     restored_desired_state = await desired_state.async_load()
 
-    settings = {**entry.data, **entry.options}
     runtime = NordpoolSchedulerRuntimeData(
         coordinator=coordinator,
         schedule=schedule,

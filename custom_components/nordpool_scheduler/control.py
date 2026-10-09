@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.const import (
     ATTR_ENTITY_ID,
@@ -43,14 +43,18 @@ class DesiredStateStore:
     """Persist the state the scheduler last applied to the target.
 
     on_change mode reads it back after a restart or reload, so a manual
-    toggle made before then isn't undone.
+    toggle made before then isn't undone. A state saved for a different
+    target entity is ignored.
     """
 
-    def __init__(self, hass: HomeAssistant, entry_id: str) -> None:
+    def __init__(
+        self, hass: HomeAssistant, entry_id: str, target_entity: str | None
+    ) -> None:
         """Initialize."""
-        self._store: Store[dict[str, bool | None]] = Store(
+        self._store: Store[dict[str, Any]] = Store(
             hass, STORAGE_VERSION, f"{DESIRED_STATE_STORAGE_KEY_PREFIX}.{entry_id}"
         )
+        self._target_entity = target_entity
         self._state: bool | None = None
         self._changed = False
 
@@ -58,7 +62,10 @@ class DesiredStateStore:
         """Load and return the saved state, or None if there is none."""
         stored = await self._store.async_load() or {}
         state = stored.get("desired_on")
-        self._state = state if isinstance(state, bool) else None
+        if stored.get("target_entity") == self._target_entity and isinstance(
+            state, bool
+        ):
+            self._state = state
         return self._state
 
     def save(self, *, state: bool | None) -> None:
@@ -74,8 +81,8 @@ class DesiredStateStore:
         if self._changed:
             await self._store.async_save(self._as_stored())
 
-    def _as_stored(self) -> dict[str, bool | None]:
-        return {"desired_on": self._state}
+    def _as_stored(self) -> dict[str, Any]:
+        return {"target_entity": self._target_entity, "desired_on": self._state}
 
 
 async def async_apply_now(

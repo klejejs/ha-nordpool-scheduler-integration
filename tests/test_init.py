@@ -346,12 +346,14 @@ async def test_reload_mid_slot_keeps_current_override(
 DESIRED_STATE_KEY = f"{DESIRED_STATE_STORAGE_KEY_PREFIX}.scheduler_entry_id"
 
 
-def _saved_desired_state(*, desired_on: bool | None) -> dict[str, Any]:
+def _saved_desired_state(
+    *, desired_on: bool | None, target_entity: str = "input_boolean.test_target"
+) -> dict[str, Any]:
     return {
         "version": 1,
         "minor_version": 1,
         "key": DESIRED_STATE_KEY,
-        "data": {"desired_on": desired_on},
+        "data": {"target_entity": target_entity, "desired_on": desired_on},
     }
 
 
@@ -372,7 +374,7 @@ async def test_restart_keeps_manual_toggle(
     await hass.async_block_till_done()
 
     assert hass.states.get(mock_target).state == "on"
-    assert hass_storage[DESIRED_STATE_KEY]["data"] == {"desired_on": False}
+    assert hass_storage[DESIRED_STATE_KEY] == _saved_desired_state(desired_on=False)
 
 
 async def test_restart_after_wanted_state_changed(
@@ -409,7 +411,26 @@ async def test_first_install_matches_target_to_slot(
 
     assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
     await hass.async_block_till_done()
-    assert hass_storage[DESIRED_STATE_KEY]["data"] == {"desired_on": False}
+    assert hass_storage[DESIRED_STATE_KEY] == _saved_desired_state(desired_on=False)
+
+
+async def test_restart_ignores_state_saved_for_another_target(
+    hass: HomeAssistant,
+    hass_storage: dict[str, Any],
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """After the entry is retargeted, the new target is matched to the slot."""
+    hass_storage[DESIRED_STATE_KEY] = _saved_desired_state(
+        desired_on=False, target_entity="input_boolean.old_target"
+    )
+    hass.states.async_set(mock_target, "on")
+
+    await _setup(hass, mock_config_entry, nordpool_prices)
+
+    assert hass.states.get(mock_target).state == "off"
 
 
 async def test_restart_in_enforce_mode_ignores_saved_state(
