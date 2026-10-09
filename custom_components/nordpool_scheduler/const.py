@@ -1,5 +1,6 @@
 """Constants for the Nordpool Scheduler integration."""
 
+from datetime import time
 from typing import Final
 
 DOMAIN: Final = "nordpool_scheduler"
@@ -29,6 +30,8 @@ DEFAULT_VAT_PERCENT: Final = 21
 PRICE_UNIT: Final = "c/kWh"
 
 DEFAULT_RUN_HOURS: Final = 2.0
+DEFAULT_WINDOW_START: Final = time(17, 0)
+DEFAULT_WINDOW_END: Final = time(23, 0)
 
 SLOT_SOURCE_OVERRIDE: Final = "override"
 SLOT_SOURCE_AUTO: Final = "auto"

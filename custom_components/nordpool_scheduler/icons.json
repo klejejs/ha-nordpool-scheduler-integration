@@ -26,6 +26,12 @@
         "state": {
           "off": "mdi:robot-off"
         }
+      },
+      "window_enabled": {
+        "default": "mdi:clock-time-eight-outline"
+      },
+      "cheap_all_day": {
+        "default": "mdi:hours-24"
       }
     },
     "number": {
@@ -37,6 +43,14 @@
       },
       "cheap_price": {
         "default": "mdi:cash-check"
+      }
+    },
+    "time": {
+      "window_start": {
+        "default": "mdi:clock-start"
+      },
+      "window_end": {
+        "default": "mdi:clock-end"
       }
     }
   },

@@ -40,7 +40,7 @@ async def test_setup_creates_entities(
     mock_target: str,
     nordpool_prices: dict[date, list],
 ) -> None:
-    """Setting up an entry creates its sensor, binary sensor, switches and numbers."""
+    """Setting up an entry creates its sensors, switches, numbers and times."""
     await _setup(hass, mock_config_entry, nordpool_prices)
 
     assert mock_config_entry.state.name == "LOADED"
@@ -49,7 +49,7 @@ async def test_setup_creates_entities(
     entries = er.async_entries_for_config_entry(
         entity_registry, mock_config_entry.entry_id
     )
-    assert len(entries) == 12
+    assert len(entries) == 16
 
 
 async def test_unload_entry(

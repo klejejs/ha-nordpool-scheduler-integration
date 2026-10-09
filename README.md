@@ -65,7 +65,7 @@ Add one scheduler per entity. An entity can only have one scheduler.
 
 ## Entities
 
-Each scheduler creates one device with twelve entities. For a scheduler named "Boiler":
+Each scheduler creates one device with sixteen entities. For a scheduler named "Boiler":
 
 | Entity | Description |
 |---|---|
@@ -78,8 +78,12 @@ Each scheduler creates one device with twelve entities. For a scheduler named "B
 | `number.nordpool_scheduler_boiler_auto_hours_per_day` | Hours a day auto mode runs the target, in 15-minute steps. Default 2. |
 | `number.nordpool_scheduler_boiler_auto_max_price` | Auto mode skips a picked slot above this price, in c/kWh. 0 turns the limit off. |
 | `number.nordpool_scheduler_boiler_auto_cheap_price` | Auto mode also runs every slot at or below this price, in c/kWh. 0 turns it off. |
+| `switch.nordpool_scheduler_boiler_auto_hour_range` | Off by default. Turn it on to have auto mode only run the target between the start and end times. |
+| `time.nordpool_scheduler_boiler_auto_start_time` | Where the hour range starts. Default 17:00. |
+| `time.nordpool_scheduler_boiler_auto_end_time` | Where the hour range ends. Default 23:00. |
+| `switch.nordpool_scheduler_boiler_auto_cheap_price_all_day` | Off by default. Turn it on to also run slots at or below **Auto cheap price** outside the hour range. |
 
-The auto mode switch and numbers keep their values across restarts.
+The auto mode switches, numbers and times keep their values across restarts.
 
 A prices-only entry's schedule sensor works the same way.
 
@@ -90,10 +94,11 @@ With auto mode on, the scheduler picks which slots run instead of using the defa
 - Each local day, midnight to midnight in Home Assistant's time zone, runs in its cheapest slots, adding up to **Auto hours per day**. A tie goes to the earlier slot.
 - A picked slot priced above **Auto max price** doesn't run, so on an expensive day the target can run for less than its hours.
 - Every slot at or below **Auto cheap price** runs, even past the hours.
-- A day is only decided once every one of its slots has a price. Until then, for example tomorrow before Nord Pool publishes, its slots follow the default state.
+- With **Auto hour range** on, the hours are only picked between **Auto start time** and **Auto end time**, and every slot outside them is off. Cheap slots outside the range stay off too, unless **Auto cheap price all day** is on. An end time before the start time wraps past midnight, but each day is still picked on its own: 22:00 to 06:00 covers that day's 00:00 to 06:00 and 22:00 to midnight. Equal start and end times cover the whole day.
+- A day is only decided once every one of its slots has a price. Until then, for example tomorrow before Nord Pool publishes, its slots follow the default state, except those outside an **Auto hour range**, which are off.
 - An override always wins over auto mode's pick.
 
-Turning auto mode on or off, or changing one of its numbers, takes effect for the current slot at once.
+Turning auto mode on or off, or changing one of its settings, takes effect for the current slot at once.
 
 ## Average price
 
@@ -108,7 +113,7 @@ The average price sensors report what the target's running time has cost per kWh
 ## How it works
 
 - The day is split into 15-minute slots. A slot is either overridden **on**, overridden **off**, or follows auto mode's pick when auto mode is on and the default state otherwise.
-- At 00, 15, 30 and 45 past each hour the scheduler works out what the current slot wants and turns the target on or off. Changing an override, auto mode or one of its numbers re-checks the current slot straight away. Changing the current slot's override also switches the target to match it, even if you toggled the target by hand.
+- At 00, 15, 30 and 45 past each hour the scheduler works out what the current slot wants and turns the target on or off. Changing an override, auto mode or one of its settings re-checks the current slot straight away. Changing the current slot's override also switches the target to match it, even if you toggled the target by hand.
 - With **Only act when the schedule changes**, it only calls `turn_on` or `turn_off` when the wanted state differs from the previous slot's.
 - After a restart or reload, **Only act when the schedule changes** picks up where it left off: the wanted state is saved on disk, and the target is only switched if the current slot wants something different from what it wanted before. A manual toggle survives the restart. On a first install, and in **Enforce every 15 minutes**, it brings the target back in line with the current slot, switching it only if its state differs.
 - A target that is `unavailable` or `unknown` is skipped for that slot.

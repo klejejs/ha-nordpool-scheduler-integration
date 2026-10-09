@@ -25,7 +25,12 @@ async def async_setup_entry(
 ) -> None:
     """Set up the enabled and auto mode switches for a config entry."""
     async_add_entities(
-        [NordpoolSchedulerEnabledSwitch(entry), NordpoolSchedulerAutoModeSwitch(entry)]
+        [
+            NordpoolSchedulerEnabledSwitch(entry),
+            NordpoolSchedulerAutoModeSwitch(entry),
+            NordpoolSchedulerWindowSwitch(entry),
+            NordpoolSchedulerCheapAllDaySwitch(entry),
+        ]
     )
 
 
@@ -66,40 +71,71 @@ class NordpoolSchedulerEnabledSwitch(RestoreEntity, SwitchEntity):
         self.async_write_ha_state()
 
 
-class NordpoolSchedulerAutoModeSwitch(RestoreEntity, SwitchEntity):
-    """Pick the cheapest slots of each day instead of using the default state."""
+class NordpoolSchedulerAutoSettingSwitch(RestoreEntity, SwitchEntity):
+    """An auto mode on/off setting, off until turned on, kept across restarts."""
 
     _attr_device_class = SwitchDeviceClass.SWITCH
     _attr_entity_category = EntityCategory.CONFIG
     _attr_has_entity_name = True
-    _attr_translation_key = "auto_mode"
     _attr_should_poll = False
+    _key: str
+    _runtime_attr: str
 
     def __init__(self, entry: NordpoolSchedulerConfigEntry) -> None:
         """Initialize."""
         self._entry = entry
-        self._attr_unique_id = f"{entry.entry_id}_auto_mode"
+        self._attr_translation_key = self._key
+        self._attr_unique_id = f"{entry.entry_id}_{self._key}"
         self._attr_device_info = build_device_info(entry)
         self._attr_is_on = False
 
     async def async_added_to_hass(self) -> None:
-        """Restore the last known auto mode state."""
+        """Restore the last known state."""
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
         if last_state is not None:
             self._attr_is_on = last_state.state == STATE_ON
-        self._entry.runtime_data.auto_enabled = self._attr_is_on
+        self._store()
 
     async def async_turn_on(self, **_kwargs: Any) -> None:
-        """Turn auto mode on."""
+        """Turn the setting on."""
         await self._async_set(on=True)
 
     async def async_turn_off(self, **_kwargs: Any) -> None:
-        """Turn auto mode off; slots without an override follow the default."""
+        """Turn the setting off."""
         await self._async_set(on=False)
 
     async def _async_set(self, *, on: bool) -> None:
         self._attr_is_on = on
-        self._entry.runtime_data.auto_enabled = on
+        self._store()
         self.async_write_ha_state()
         await async_apply_now(self.hass, self._entry)
+
+    def _store(self) -> None:
+        runtime = self._entry.runtime_data
+        setattr(runtime, self._runtime_attr, self._attr_is_on)
+        runtime.refresh_auto(self.hass)
+
+
+class NordpoolSchedulerAutoModeSwitch(NordpoolSchedulerAutoSettingSwitch):
+    """Pick the cheapest slots of each day instead of using the default state.
+
+    Turned off, slots without an override follow the default state.
+    """
+
+    _key = "auto_mode"
+    _runtime_attr = "auto_enabled"
+
+
+class NordpoolSchedulerWindowSwitch(NordpoolSchedulerAutoSettingSwitch):
+    """Only pick slots between auto mode's start and end times."""
+
+    _key = "window_enabled"
+    _runtime_attr = "window_enabled"
+
+
+class NordpoolSchedulerCheapAllDaySwitch(NordpoolSchedulerAutoSettingSwitch):
+    """Run slots at or below the cheap price outside the hour range too."""
+
+    _key = "cheap_all_day"
+    _runtime_attr = "cheap_all_day"

@@ -51,6 +51,18 @@ def _build_auto_snapshot(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, A
         "run_hours_entity": _entity_id_for(hass, "number", f"{entry_id}_run_hours"),
         "max_price_entity": _entity_id_for(hass, "number", f"{entry_id}_max_price"),
         "cheap_price_entity": _entity_id_for(hass, "number", f"{entry_id}_cheap_price"),
+        "window_enabled": runtime.window_enabled,
+        "window_start": runtime.window_start.strftime("%H:%M"),
+        "window_end": runtime.window_end.strftime("%H:%M"),
+        "cheap_all_day": runtime.cheap_all_day,
+        "window_enabled_entity": _entity_id_for(
+            hass, "switch", f"{entry_id}_window_enabled"
+        ),
+        "window_start_entity": _entity_id_for(hass, "time", f"{entry_id}_window_start"),
+        "window_end_entity": _entity_id_for(hass, "time", f"{entry_id}_window_end"),
+        "cheap_all_day_entity": _entity_id_for(
+            hass, "switch", f"{entry_id}_cheap_all_day"
+        ),
     }
 
 
