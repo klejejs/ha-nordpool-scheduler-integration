@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.components.sensor import SensorEntity, SensorStateClass
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorStateClass,
+)
+from homeassistant.const import EntityCategory
 from homeassistant.core import callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
@@ -13,11 +18,12 @@ from homeassistant.util import dt as dt_util
 from .const import CONF_AREA, PRICE_UNIT
 from .coordinator import NordpoolSchedulerPriceCoordinator
 from .entity import build_device_info
+from .snapshot import build_published_snapshot
 from .stats import WINDOWS, StatsWindow
 from .util import is_prices_only, slot_start_for
 
 if TYPE_CHECKING:
-    from datetime import date
+    from datetime import date, datetime
 
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -35,6 +41,7 @@ async def async_setup_entry(
         [
             NordpoolSchedulerPriceSensor(entry),
             *(NordpoolSchedulerAveragePriceSensor(entry, w) for w in WINDOWS),
+            NordpoolSchedulerScheduleSensor(entry),
         ]
     )
 
@@ -120,3 +127,49 @@ class NordpoolSchedulerAveragePriceSensor(SensorEntity):
     @property
     def _period_start(self) -> date:
         return self._window.start(dt_util.now().date())
+
+
+class NordpoolSchedulerScheduleSensor(SensorEntity):
+    """The card's snapshot as an attribute, for an instance that mirrors this one.
+
+    The state is the start of the current slot.
+    """
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "schedule"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+    _attr_should_poll = False
+    _unrecorded_attributes = frozenset({"schedule"})
+
+    def __init__(self, entry: NordpoolSchedulerConfigEntry) -> None:
+        """Initialize."""
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_schedule"
+        self._attr_device_info = build_device_info(entry)
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to updates."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, self._entry.runtime_data.update_signal, self._async_refresh
+            )
+        )
+
+    @callback
+    def _async_refresh(self) -> None:
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self) -> datetime:
+        """Return the start of the current slot."""
+        return slot_start_for(dt_util.utcnow())
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the state attributes."""
+        return {
+            "schedule": build_published_snapshot(self.hass, self._entry, self.entity_id)
+        }

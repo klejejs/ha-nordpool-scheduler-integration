@@ -48,7 +48,7 @@ async def test_setup_creates_entities(
     entries = er.async_entries_for_config_entry(
         entity_registry, mock_config_entry.entry_id
     )
-    assert len(entries) == 11
+    assert len(entries) == 12
 
 
 async def test_unload_entry(
@@ -85,6 +85,7 @@ async def test_prices_entry_only_creates_price_sensor(
         "sensor.nordpool_scheduler_prices_lv_average_price_this_year",
         "sensor.nordpool_scheduler_prices_lv_average_price_today",
         "sensor.nordpool_scheduler_prices_lv_electricity_price",
+        "sensor.nordpool_scheduler_prices_lv_schedule",
     ]
     assert hass.states.get("sensor.nordpool_scheduler_prices_lv_electricity_price")
 

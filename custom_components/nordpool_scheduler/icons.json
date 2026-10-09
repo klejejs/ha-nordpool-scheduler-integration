@@ -12,6 +12,9 @@
       },
       "average_price_year": {
         "default": "mdi:cash-clock"
+      },
+      "schedule": {
+        "default": "mdi:calendar-export"
       }
     },
     "switch": {
