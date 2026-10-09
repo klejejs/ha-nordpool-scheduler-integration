@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.const import EVENT_CALL_SERVICE
 from homeassistant.core import DOMAIN as HOMEASSISTANT_DOMAIN
@@ -21,6 +21,7 @@ from custom_components.nordpool_scheduler.const import (
     CONF_CONTROL_MODE,
     CONF_TARGET_ENTITY,
     CONTROL_MODE_ENFORCE,
+    DESIRED_STATE_STORAGE_KEY_PREFIX,
     DOMAIN,
 )
 from custom_components.nordpool_scheduler.control import async_apply_slot
@@ -340,6 +341,117 @@ async def test_reload_mid_slot_keeps_current_override(
     # The override for the still-current slot must have survived the reload.
     assert entry.runtime_data.schedule.get(_slot_start(now)) is True
     assert hass.states.get(mock_target).state == "on"
+
+
+DESIRED_STATE_KEY = f"{DESIRED_STATE_STORAGE_KEY_PREFIX}.scheduler_entry_id"
+
+
+def _saved_desired_state(
+    *, desired_on: bool | None, target_entity: str = "input_boolean.test_target"
+) -> dict[str, Any]:
+    return {
+        "version": 1,
+        "minor_version": 1,
+        "key": DESIRED_STATE_KEY,
+        "data": {"target_entity": target_entity, "desired_on": desired_on},
+    }
+
+
+async def test_restart_keeps_manual_toggle(
+    hass: HomeAssistant,
+    hass_storage: dict[str, Any],
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """In on_change mode, a reload leaves a target toggled by hand alone."""
+    await _setup(hass, mock_config_entry, nordpool_prices)
+    assert hass.states.get(mock_target).state == "off"
+
+    hass.states.async_set(mock_target, "on")
+    assert await hass.config_entries.async_reload(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert hass.states.get(mock_target).state == "on"
+    assert hass_storage[DESIRED_STATE_KEY] == _saved_desired_state(desired_on=False)
+
+
+async def test_restart_after_wanted_state_changed(
+    hass: HomeAssistant,
+    hass_storage: dict[str, Any],
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """A schedule that changed while HA was down is applied on startup."""
+    hass_storage[DESIRED_STATE_KEY] = _saved_desired_state(desired_on=True)
+    hass.states.async_set(mock_target, "on")
+
+    await _setup(hass, mock_config_entry, nordpool_prices)
+
+    assert hass.states.get(mock_target).state == "off"
+
+
+async def test_first_install_matches_target_to_slot(
+    hass: HomeAssistant,
+    hass_storage: dict[str, Any],
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """With nothing saved yet, setup switches the target to match the slot."""
+    assert DESIRED_STATE_KEY not in hass_storage
+    hass.states.async_set(mock_target, "on")
+
+    await _setup(hass, mock_config_entry, nordpool_prices)
+    assert hass.states.get(mock_target).state == "off"
+
+    assert await hass.config_entries.async_unload(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass_storage[DESIRED_STATE_KEY] == _saved_desired_state(desired_on=False)
+
+
+async def test_restart_ignores_state_saved_for_another_target(
+    hass: HomeAssistant,
+    hass_storage: dict[str, Any],
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """After the entry is retargeted, the new target is matched to the slot."""
+    hass_storage[DESIRED_STATE_KEY] = _saved_desired_state(
+        desired_on=False, target_entity="input_boolean.old_target"
+    )
+    hass.states.async_set(mock_target, "on")
+
+    await _setup(hass, mock_config_entry, nordpool_prices)
+
+    assert hass.states.get(mock_target).state == "off"
+
+
+async def test_restart_in_enforce_mode_ignores_saved_state(
+    hass: HomeAssistant,
+    hass_storage: dict[str, Any],
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """Enforce mode still brings a toggled target back in line on startup."""
+    hass_storage[DESIRED_STATE_KEY] = _saved_desired_state(desired_on=False)
+    hass.states.async_set(mock_target, "on")
+    mock_config_entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        mock_config_entry, options={CONF_CONTROL_MODE: CONTROL_MODE_ENFORCE}
+    )
+
+    await _setup(hass, mock_config_entry, nordpool_prices)
+
+    assert hass.states.get(mock_target).state == "off"
 
 
 def _slot_start(now: datetime) -> datetime:

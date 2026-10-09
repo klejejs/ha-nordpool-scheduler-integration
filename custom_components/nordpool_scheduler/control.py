@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.const import (
     ATTR_ENTITY_ID,
@@ -15,9 +15,16 @@ from homeassistant.const import (
 )
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_CONTROL_MODE, CONF_TARGET_ENTITY, CONTROL_MODE_ENFORCE
+from .const import (
+    CONF_CONTROL_MODE,
+    CONF_TARGET_ENTITY,
+    CONTROL_MODE_ENFORCE,
+    DESIRED_STATE_STORAGE_KEY_PREFIX,
+    STORAGE_VERSION,
+)
 from .util import slot_start_for
 
 if TYPE_CHECKING:
@@ -25,9 +32,57 @@ if TYPE_CHECKING:
 
     from homeassistant.core import HomeAssistant
 
-    from . import NordpoolSchedulerConfigEntry
+    from . import NordpoolSchedulerConfigEntry, NordpoolSchedulerRuntimeData
 
 _LOGGER = logging.getLogger(__name__)
+
+SAVE_DELAY = 5
+
+
+class DesiredStateStore:
+    """Persist the state the scheduler last applied to the target.
+
+    on_change mode reads it back after a restart or reload, so a manual
+    toggle made before then isn't undone. A state saved for a different
+    target entity is ignored.
+    """
+
+    def __init__(
+        self, hass: HomeAssistant, entry_id: str, target_entity: str | None
+    ) -> None:
+        """Initialize."""
+        self._store: Store[dict[str, Any]] = Store(
+            hass, STORAGE_VERSION, f"{DESIRED_STATE_STORAGE_KEY_PREFIX}.{entry_id}"
+        )
+        self._target_entity = target_entity
+        self._state: bool | None = None
+        self._changed = False
+
+    async def async_load(self) -> bool | None:
+        """Load and return the saved state, or None if there is none."""
+        stored = await self._store.async_load() or {}
+        state = stored.get("desired_on")
+        if stored.get("target_entity") == self._target_entity and isinstance(
+            state, bool
+        ):
+            self._state = state
+        return self._state
+
+    def save(self, *, state: bool | None) -> None:
+        """Remember ``state``, writing it to disk after a short delay."""
+        if state is self._state:
+            return
+        self._state = state
+        self._changed = True
+        self._store.async_delay_save(self._as_stored, SAVE_DELAY)
+
+    async def async_flush(self) -> None:
+        """Write out a pending delayed save immediately."""
+        if self._changed:
+            await self._store.async_save(self._as_stored())
+
+    def _as_stored(self) -> dict[str, Any]:
+        return {"target_entity": self._target_entity, "desired_on": self._state}
 
 
 async def async_apply_now(
@@ -72,19 +127,23 @@ async def async_apply_slot(
     runtime.schedule.prune_ended(now)
 
     control_mode = settings.get(CONF_CONTROL_MODE)
-    if runtime.last_desired_state is None or sync_target:
-        # First run since setup, or the current slot was just edited: only
-        # call the target if it doesn't already match the schedule.
+    previous = runtime.last_desired_state
+    if previous is None and control_mode != CONTROL_MODE_ENFORCE:
+        # First run since setup: carry on from the state applied before the
+        # restart or reload, so a manual toggle made since then is kept.
+        previous = runtime.restored_desired_state
+    runtime.restored_desired_state = None
+
+    if previous is None or sync_target:
+        # Nothing to go on, or the current slot was just edited: only call
+        # the target if it doesn't already match the schedule.
         currently_on = target_state.state != STATE_OFF
         should_call = currently_on != desired_on
     else:
-        should_call = (
-            control_mode == CONTROL_MODE_ENFORCE
-            or runtime.last_desired_state != desired_on
-        )
+        should_call = control_mode == CONTROL_MODE_ENFORCE or previous != desired_on
 
     if not should_call:
-        runtime.last_desired_state = desired_on
+        _set_last_desired_state(runtime, state=desired_on)
     else:
         domain = target_entity.split(".")[0]
         try:
@@ -105,11 +164,18 @@ async def async_apply_slot(
             if sync_target:
                 # The marker may already match the slot, which would stop
                 # on_change mode retrying; compare with the target instead.
-                runtime.last_desired_state = None
+                _set_last_desired_state(runtime, state=None)
         else:
-            runtime.last_desired_state = desired_on
+            _set_last_desired_state(runtime, state=desired_on)
             _LOGGER.debug(
                 "%s: slot %s -> %s", entry.title, slot_start.isoformat(), desired_on
             )
 
     async_dispatcher_send(hass, runtime.update_signal)
+
+
+def _set_last_desired_state(
+    runtime: NordpoolSchedulerRuntimeData, *, state: bool | None
+) -> None:
+    runtime.last_desired_state = state
+    runtime.desired_state.save(state=state)
