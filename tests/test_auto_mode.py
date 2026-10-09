@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from typing import TYPE_CHECKING
 
 from homeassistant.core import State
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
+    mock_restore_cache,
     mock_restore_cache_with_extra_data,
 )
 
@@ -24,6 +25,10 @@ AUTO_SWITCH = "switch.nordpool_scheduler_test_auto_mode"
 RUN_HOURS = "number.nordpool_scheduler_test_auto_hours_per_day"
 MAX_PRICE = "number.nordpool_scheduler_test_auto_max_price"
 CHEAP_PRICE = "number.nordpool_scheduler_test_auto_cheap_price"
+WINDOW_SWITCH = "switch.nordpool_scheduler_test_auto_hour_range"
+CHEAP_ALL_DAY = "switch.nordpool_scheduler_test_auto_cheap_price_all_day"
+WINDOW_START = "time.nordpool_scheduler_test_auto_start_time"
+WINDOW_END = "time.nordpool_scheduler_test_auto_end_time"
 SCHEDULED_ON = "binary_sensor.nordpool_scheduler_test_scheduled_on"
 SENSOR = "sensor.nordpool_scheduler_test_electricity_price"
 
@@ -70,9 +75,18 @@ async def _set_number(hass: HomeAssistant, entity_id: str, value: float) -> None
     await hass.async_block_till_done()
 
 
-async def _switch(hass: HomeAssistant, service: str) -> None:
+async def _switch(
+    hass: HomeAssistant, service: str, entity_id: str = AUTO_SWITCH
+) -> None:
     await hass.services.async_call(
-        "switch", service, {"entity_id": AUTO_SWITCH}, blocking=True
+        "switch", service, {"entity_id": entity_id}, blocking=True
+    )
+    await hass.async_block_till_done()
+
+
+async def _set_time(hass: HomeAssistant, entity_id: str, value: time) -> None:
+    await hass.services.async_call(
+        "time", "set_value", {"entity_id": entity_id, "time": value}, blocking=True
     )
     await hass.async_block_till_done()
 
@@ -180,6 +194,66 @@ async def test_settings_re_pick_and_apply(
     assert hass.states.get(mock_target).state == "on"
 
 
+async def test_hour_range_limits_picks(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """A range without the current hour turns it off, unless it's cheap all day."""
+    await _setup_with_cheap_current_hour(hass, mock_config_entry, nordpool_prices)
+    assert hass.states.get(WINDOW_SWITCH).state == "off"
+    assert hass.states.get(CHEAP_ALL_DAY).state == "off"
+    assert hass.states.get(WINDOW_START).state == "17:00:00"
+    assert hass.states.get(WINDOW_END).state == "23:00:00"
+
+    await _switch(hass, "turn_on")
+    assert hass.states.get(mock_target).state == "on"
+
+    hour = datetime.now(OSLO_TZ).hour
+    await _set_time(hass, WINDOW_START, time((hour + 2) % 24))
+    await _set_time(hass, WINDOW_END, time((hour + 3) % 24))
+    assert hass.states.get(mock_target).state == "on"
+
+    await _switch(hass, "turn_on", WINDOW_SWITCH)
+    assert hass.states.get(mock_target).state == "off"
+    assert hass.states.get(SCHEDULED_ON).attributes["source"] == "auto"
+
+    await _set_number(hass, CHEAP_PRICE, 2.0)
+    assert hass.states.get(mock_target).state == "off"
+
+    await _switch(hass, "turn_on", CHEAP_ALL_DAY)
+    assert hass.states.get(mock_target).state == "on"
+
+
+async def test_hour_range_is_restored(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """The hour range's switches and times survive a restart."""
+    mock_restore_cache(
+        hass,
+        [
+            State(WINDOW_SWITCH, "on"),
+            State(CHEAP_ALL_DAY, "on"),
+            State(WINDOW_START, "06:15:00"),
+            State(WINDOW_END, "unknown"),
+        ],
+    )
+    await _setup_with_cheap_current_hour(hass, mock_config_entry, nordpool_prices)
+
+    runtime = mock_config_entry.runtime_data
+    assert runtime.window_enabled is True
+    assert runtime.cheap_all_day is True
+    assert runtime.window_start == time(6, 15)
+    assert runtime.window_end == time(23, 0)
+    assert hass.states.get(WINDOW_START).state == "06:15:00"
+
+
 async def test_auto_settings_are_restored(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
@@ -243,6 +317,14 @@ async def test_snapshot_carries_auto_mode(
         "run_hours_entity": RUN_HOURS,
         "max_price_entity": MAX_PRICE,
         "cheap_price_entity": CHEAP_PRICE,
+        "window_enabled": False,
+        "window_start": "17:00",
+        "window_end": "23:00",
+        "cheap_all_day": False,
+        "window_enabled_entity": WINDOW_SWITCH,
+        "window_start_entity": WINDOW_START,
+        "window_end_entity": WINDOW_END,
+        "cheap_all_day_entity": CHEAP_ALL_DAY,
     }
     current = next(
         s for s in snapshot["slots"] if s["start"] == snapshot["now_slot_start"]

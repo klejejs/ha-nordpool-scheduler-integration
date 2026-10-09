@@ -126,6 +126,12 @@
       },
       "auto_mode": {
         "name": "Auto mode"
+      },
+      "window_enabled": {
+        "name": "Auto hour range"
+      },
+      "cheap_all_day": {
+        "name": "Auto cheap price all day"
       }
     },
     "number": {
@@ -137,6 +143,14 @@
       },
       "cheap_price": {
         "name": "Auto cheap price"
+      }
+    },
+    "time": {
+      "window_start": {
+        "name": "Auto start time"
+      },
+      "window_end": {
+        "name": "Auto end time"
       }
     }
   },

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -27,7 +27,7 @@ def _on_indexes(decisions: dict[datetime, bool], day: date) -> list[int]:
     )
 
 
-def _select(prices: dict[datetime, float], **kwargs: float) -> dict[datetime, bool]:
+def _select(prices: dict[datetime, float], **kwargs: object) -> dict[datetime, bool]:
     settings = {"run_hours": 1.0, "max_price": 0.0, "cheap_price": 0.0, **kwargs}
     return select_auto_slots(prices, TZ, **settings)
 
@@ -103,3 +103,63 @@ def test_dst_days(day: date, slots: int) -> None:
 
     assert len(decisions) == slots
     assert sum(decisions.values()) == 4
+
+
+def test_window_limits_picks() -> None:
+    """Only slots inside the window are picked, and every other slot is off."""
+    raw = [50.0] * 96
+    raw[8] = 1.0  # 02:00, cheapest of the day but outside the window
+    for i, price in {68: 9.0, 72: 5.0, 80: 6.0, 90: 7.0}.items():
+        raw[i] = price
+    decisions = _select(
+        _day_prices(DAY, raw), run_hours=0.5, window=(time(17, 0), time(23, 0))
+    )
+
+    assert len(decisions) == 96
+    assert _on_indexes(decisions, DAY) == [72, 80]
+
+
+def test_window_smaller_than_run_hours_runs_all_of_it() -> None:
+    """With more hours than the window holds, the whole window runs."""
+    decisions = _select(
+        _day_prices(DAY, [1.0] * 96), run_hours=4, window=(time(17, 0), time(18, 0))
+    )
+    assert _on_indexes(decisions, DAY) == [68, 69, 70, 71]
+
+
+def test_window_with_equal_ends_is_the_whole_day() -> None:
+    """A window that starts where it ends covers the whole day."""
+    raw = [50.0] * 96
+    raw[8] = 1.0
+    decisions = _select(
+        _day_prices(DAY, raw), run_hours=0.25, window=(time(17, 0), time(17, 0))
+    )
+    assert _on_indexes(decisions, DAY) == [8]
+
+
+def test_window_wraps_past_midnight() -> None:
+    """A window ending before it starts covers the day's night at both ends."""
+    raw = [50.0] * 96
+    raw[4], raw[40], raw[92] = 2.0, 1.0, 3.0  # 01:00, 10:00 and 23:00
+    decisions = _select(
+        _day_prices(DAY, raw), run_hours=0.5, window=(time(22, 0), time(6, 0))
+    )
+    assert _on_indexes(decisions, DAY) == [4, 92]
+
+
+def test_cheap_price_stays_in_the_window() -> None:
+    """Cheap slots outside the window stay off unless cheap_all_day is set."""
+    raw = [50.0] * 96
+    raw[8] = 1.0
+    raw[72] = 1.5
+    settings = {
+        "run_hours": 0,
+        "cheap_price": 2.0,
+        "window": (time(17, 0), time(23, 0)),
+    }
+
+    decisions = _select(_day_prices(DAY, raw), **settings)
+    assert _on_indexes(decisions, DAY) == [72]
+
+    decisions = _select(_day_prices(DAY, raw), **settings, cheap_all_day=True)
+    assert _on_indexes(decisions, DAY) == [8, 72]

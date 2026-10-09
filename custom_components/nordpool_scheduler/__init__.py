@@ -17,6 +17,8 @@ from .const import (
     CONF_DEFAULT_STATE,
     CONF_TARGET_ENTITY,
     DEFAULT_RUN_HOURS,
+    DEFAULT_WINDOW_END,
+    DEFAULT_WINDOW_START,
     DOMAIN,
     SLOT_SOURCE_AUTO,
     SLOT_SOURCE_DEFAULT,
@@ -32,7 +34,7 @@ from .util import is_prices_only
 from .websocket_api import async_setup_websocket_api
 
 if TYPE_CHECKING:
-    from datetime import datetime
+    from datetime import datetime, time
 
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.helpers.typing import ConfigType
@@ -42,6 +44,7 @@ PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
     Platform.SWITCH,
     Platform.NUMBER,
+    Platform.TIME,
 ]
 PRICES_PLATFORMS: list[Platform] = [Platform.SENSOR]
 
@@ -65,6 +68,10 @@ class NordpoolSchedulerRuntimeData:
     run_hours: float = DEFAULT_RUN_HOURS
     max_price: float = 0.0
     cheap_price: float = 0.0
+    window_enabled: bool = False
+    window_start: time = DEFAULT_WINDOW_START
+    window_end: time = DEFAULT_WINDOW_END
+    cheap_all_day: bool = False
     auto_slots: dict[datetime, bool] = field(default_factory=dict, repr=False)
     last_desired_state: bool | None = None
     restored_desired_state: bool | None = None
@@ -84,6 +91,10 @@ class NordpoolSchedulerRuntimeData:
             run_hours=self.run_hours,
             max_price=self.max_price,
             cheap_price=self.cheap_price,
+            window=(
+                (self.window_start, self.window_end) if self.window_enabled else None
+            ),
+            cheap_all_day=self.cheap_all_day,
         )
 
     def auto_pick(self, slot_start: datetime) -> bool | None:
