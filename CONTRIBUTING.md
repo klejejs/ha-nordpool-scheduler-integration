@@ -14,7 +14,7 @@ GitHub is used to host code, to track issues and feature requests, as well as ac
 Pull requests are the best way to propose changes to the codebase.
 
 1. Fork the repo and create your branch from `main`.
-2. If you've changed something, update the documentation.
+2. If you've changed something, update the documentation. A user-facing change also updates the info dialog in the card's [`src/info.ts`](https://github.com/klejejs/ha-nordpool-scheduler-card/blob/main/src/info.ts), which explains every feature, and the [card's README](https://github.com/klejejs/ha-nordpool-scheduler-card#readme).
 3. Make sure your code lints (using `scripts/lint`).
 4. Test your contribution (using `scripts/test`).
 5. Issue that pull request!
