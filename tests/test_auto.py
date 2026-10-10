@@ -175,3 +175,115 @@ def test_cheap_price_stays_in_the_window() -> None:
 
     decisions = _select(_day_prices(DAY, raw), **settings, cheap_all_day=True)
     assert _on_indexes(decisions, DAY) == [8, 72]
+
+
+def test_run_limit_of_one_picks_the_cheapest_block() -> None:
+    """With one run allowed, the hours run back to back, not in scattered slots."""
+    raw = [50.0] * 96
+    for i, price in {10: 1.0, 40: 2.0, 90: 3.0}.items():
+        raw[i] = price
+    for i in range(60, 64):
+        raw[i] = 10.0
+    prices = _day_prices(DAY, raw)
+
+    assert _on_indexes(_select(prices), DAY) == [10, 40, 60, 90]
+    assert _on_indexes(_select(prices, max_runs=1), DAY) == [60, 61, 62, 63]
+
+
+def test_run_limit_of_two_splits_the_hours() -> None:
+    """Two runs allowed take the two cheapest stretches."""
+    raw = [50.0] * 96
+    raw[8], raw[9] = 1.0, 1.0
+    raw[70], raw[71] = 2.0, 2.0
+    raw[40] = 1.5
+    decisions = _select(_day_prices(DAY, raw), max_runs=2)
+    assert _on_indexes(decisions, DAY) == [8, 9, 70, 71]
+
+
+def test_run_limit_ties_go_to_the_earlier_block() -> None:
+    """Equal prices put the run at the start of the day."""
+    decisions = _select(_day_prices(DAY, [7.0] * 96), max_runs=1)
+    assert _on_indexes(decisions, DAY) == [0, 1, 2, 3]
+
+
+def test_run_limit_above_the_runs_needed_changes_nothing() -> None:
+    """A limit the cheapest slots already fit in picks the same slots."""
+    raw = [float(i % 7) for i in range(96)]
+    prices = _day_prices(DAY, raw)
+    assert _select(prices, run_hours=3, max_runs=96) == _select(prices, run_hours=3)
+
+
+def test_run_limit_keeps_runs_clear_of_max_price() -> None:
+    """A run never spans a slot above max_price, so it can run short."""
+    raw = [50.0] * 96
+    raw[20], raw[21], raw[23] = 1.0, 1.0, 1.0
+    raw[22] = 9.0
+    decisions = _select(_day_prices(DAY, raw), max_price=8.0, max_runs=1)
+    assert _on_indexes(decisions, DAY) == [20, 21]
+
+
+def test_run_limit_lets_cheap_slots_extend_a_run_only() -> None:
+    """Cheap slots next to a run lengthen it, but never start another."""
+    raw = [50.0] * 96
+    raw[30], raw[31] = 1.0, 1.0
+    raw[29], raw[32], raw[33] = 2.0, 2.0, 2.0
+    raw[80] = 2.0
+    decisions = _select(
+        _day_prices(DAY, raw), run_hours=0.5, cheap_price=2.0, max_runs=1
+    )
+    assert _on_indexes(decisions, DAY) == [29, 30, 31, 32, 33]
+
+
+def test_run_limit_grows_runs_only_up_to_max_price() -> None:
+    """A cheap price above max_price can't lengthen a run past max_price."""
+    raw = [50.0] * 96
+    raw[30], raw[31] = 1.0, 1.0
+    raw[29], raw[32] = 3.0, 6.0
+    decisions = _select(
+        _day_prices(DAY, raw),
+        run_hours=0.5,
+        max_price=5.0,
+        cheap_price=8.0,
+        max_runs=1,
+    )
+    assert _on_indexes(decisions, DAY) == [29, 30, 31]
+
+
+def test_run_limit_with_no_hours_runs_nothing() -> None:
+    """Without hours to run there is no run for cheap slots to join."""
+    decisions = _select(
+        _day_prices(DAY, [1.0] * 96), run_hours=0, cheap_price=2.0, max_runs=1
+    )
+    assert not any(decisions.values())
+
+
+def test_run_limit_counts_both_ends_of_a_wrapped_window() -> None:
+    """A window past midnight is two stretches of the day, so two runs."""
+    raw = [50.0] * 96
+    raw[4], raw[92] = 1.0, 1.0
+    window = (time(22, 0), time(6, 0))
+    prices = _day_prices(DAY, raw)
+
+    decisions = _select(prices, run_hours=0.5, window=window, max_runs=1)
+    assert _on_indexes(decisions, DAY) == [3, 4]
+
+    decisions = _select(prices, run_hours=0.5, window=window, max_runs=2)
+    assert _on_indexes(decisions, DAY) == [4, 92]
+
+
+def test_run_limit_on_a_dst_day() -> None:
+    """The run is placed over the day's real slots."""
+    day = date(2026, 10, 25)
+    start = datetime.combine(day, datetime.min.time(), tzinfo=TZ).astimezone(UTC)
+    raw = [50.0] * 100
+    raw[0], raw[99] = 1.0, 1.0
+    raw[96:99] = [2.0, 2.0, 2.0]
+    prices = {start + timedelta(minutes=15 * i): p for i, p in enumerate(raw)}
+    decisions = _select(prices, max_runs=1)
+
+    assert len(decisions) == 100
+    assert sorted(
+        int((slot - start).total_seconds() // 900)
+        for slot, on in decisions.items()
+        if on
+    ) == [96, 97, 98, 99]

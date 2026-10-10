@@ -32,6 +32,9 @@
       },
       "cheap_all_day": {
         "default": "mdi:hours-24"
+      },
+      "runs_limited": {
+        "default": "mdi:power-cycle"
       }
     },
     "number": {
@@ -43,6 +46,9 @@
       },
       "cheap_price": {
         "default": "mdi:cash-check"
+      },
+      "max_runs": {
+        "default": "mdi:counter"
       }
     },
     "time": {

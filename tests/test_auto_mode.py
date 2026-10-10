@@ -29,6 +29,8 @@ WINDOW_SWITCH = "switch.nordpool_scheduler_test_auto_hour_range"
 CHEAP_ALL_DAY = "switch.nordpool_scheduler_test_auto_cheap_price_all_day"
 WINDOW_START = "time.nordpool_scheduler_test_auto_start_time"
 WINDOW_END = "time.nordpool_scheduler_test_auto_end_time"
+RUNS_LIMIT = "switch.nordpool_scheduler_test_auto_run_limit"
+MAX_RUNS = "number.nordpool_scheduler_test_auto_max_runs_per_day"
 SCHEDULED_ON = "binary_sensor.nordpool_scheduler_test_scheduled_on"
 SENSOR = "sensor.nordpool_scheduler_test_electricity_price"
 
@@ -227,6 +229,39 @@ async def test_hour_range_limits_picks(
     assert hass.states.get(mock_target).state == "on"
 
 
+async def test_run_limit_keeps_auto_to_one_run(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """One run a day: the hours run back to back and cheap slots start no other."""
+    await _setup_with_cheap_current_hour(hass, mock_config_entry, nordpool_prices)
+    assert hass.states.get(RUNS_LIMIT).state == "off"
+    assert hass.states.get(MAX_RUNS).state == "1"
+    await _switch(hass, "turn_on")
+
+    await _switch(hass, "turn_on", RUNS_LIMIT)
+    assert hass.states.get(mock_target).state == "on"
+    runtime = mock_config_entry.runtime_data
+    today = sorted(
+        slot
+        for slot in runtime.auto_slots
+        if slot.astimezone(OSLO_TZ).date() == datetime.now(OSLO_TZ).date()
+    )
+    on = [runtime.auto_slots[slot] for slot in today]
+    assert sum(on) == 8
+    assert sum(o and (i == 0 or not on[i - 1]) for i, o in enumerate(on)) == 1
+
+    await _set_number(hass, RUN_HOURS, 0)
+    await _set_number(hass, CHEAP_PRICE, 2.0)
+    assert hass.states.get(mock_target).state == "off"
+
+    await _switch(hass, "turn_off", RUNS_LIMIT)
+    assert hass.states.get(mock_target).state == "on"
+
+
 async def test_hour_range_is_restored(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
@@ -266,6 +301,17 @@ async def test_auto_settings_are_restored(
         hass,
         [
             (State(AUTO_SWITCH, "on"), {}),
+            (State(RUNS_LIMIT, "on"), {}),
+            (
+                State(MAX_RUNS, "2"),
+                {
+                    "native_value": 2,
+                    "native_unit_of_measurement": None,
+                    "native_min_value": 1,
+                    "native_max_value": 24,
+                    "native_step": 1,
+                },
+            ),
             (
                 State(RUN_HOURS, "3.5"),
                 {
@@ -284,6 +330,8 @@ async def test_auto_settings_are_restored(
     assert hass.states.get(AUTO_SWITCH).state == "on"
     assert runtime.auto_enabled is True
     assert runtime.run_hours == 3.5
+    assert runtime.runs_limited is True
+    assert runtime.max_runs == 2
     assert hass.states.get(mock_target).state == "on"
 
 
@@ -325,6 +373,10 @@ async def test_snapshot_carries_auto_mode(
         "window_start_entity": WINDOW_START,
         "window_end_entity": WINDOW_END,
         "cheap_all_day_entity": CHEAP_ALL_DAY,
+        "runs_limited": False,
+        "max_runs": 1,
+        "runs_limited_entity": RUNS_LIMIT,
+        "max_runs_entity": MAX_RUNS,
     }
     current = next(
         s for s in snapshot["slots"] if s["start"] == snapshot["now_slot_start"]

@@ -49,7 +49,7 @@ async def test_setup_creates_entities(
     entries = er.async_entries_for_config_entry(
         entity_registry, mock_config_entry.entry_id
     )
-    assert len(entries) == 16
+    assert len(entries) == 18
 
 
 async def test_unload_entry(

@@ -30,6 +30,7 @@ async def async_setup_entry(
             NordpoolSchedulerAutoModeSwitch(entry),
             NordpoolSchedulerWindowSwitch(entry),
             NordpoolSchedulerCheapAllDaySwitch(entry),
+            NordpoolSchedulerRunsLimitSwitch(entry),
         ]
     )
 
@@ -139,3 +140,10 @@ class NordpoolSchedulerCheapAllDaySwitch(NordpoolSchedulerAutoSettingSwitch):
 
     _key = "cheap_all_day"
     _runtime_attr = "cheap_all_day"
+
+
+class NordpoolSchedulerRunsLimitSwitch(NordpoolSchedulerAutoSettingSwitch):
+    """Cap how many separate runs auto mode makes each day."""
+
+    _key = "runs_limited"
+    _runtime_attr = "runs_limited"

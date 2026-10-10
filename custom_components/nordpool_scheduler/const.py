@@ -32,6 +32,7 @@ PRICE_UNIT: Final = "c/kWh"
 DEFAULT_RUN_HOURS: Final = 2.0
 DEFAULT_WINDOW_START: Final = time(17, 0)
 DEFAULT_WINDOW_END: Final = time(23, 0)
+DEFAULT_MAX_RUNS: Final = 1
 
 SLOT_SOURCE_OVERRIDE: Final = "override"
 SLOT_SOURCE_AUTO: Final = "auto"

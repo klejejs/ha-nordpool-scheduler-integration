@@ -12,7 +12,7 @@ from homeassistant.components.number import (
 )
 from homeassistant.const import EntityCategory, UnitOfTime
 
-from .const import DEFAULT_RUN_HOURS, PRICE_UNIT
+from .const import DEFAULT_MAX_RUNS, DEFAULT_RUN_HOURS, PRICE_UNIT
 from .control import async_apply_now
 from .entity import build_device_info
 
@@ -58,6 +58,14 @@ DESCRIPTIONS: tuple[AutoSettingDescription, ...] = (
         native_unit_of_measurement=PRICE_UNIT,
         default=0.0,
     ),
+    AutoSettingDescription(
+        key="max_runs",
+        translation_key="max_runs",
+        native_min_value=1,
+        native_max_value=24,
+        native_step=1,
+        default=DEFAULT_MAX_RUNS,
+    ),
 )
 
 
@@ -73,7 +81,7 @@ async def async_setup_entry(
 
 
 class NordpoolSchedulerAutoSetting(RestoreNumber):
-    """One auto mode setting: hours per day, max price or cheap price."""
+    """One auto mode setting: hours per day, a price or the runs per day."""
 
     entity_description: AutoSettingDescription
     _attr_entity_category = EntityCategory.CONFIG

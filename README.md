@@ -65,7 +65,7 @@ Add one scheduler per entity. An entity can only have one scheduler.
 
 ## Entities
 
-Each scheduler creates one device with sixteen entities. For a scheduler named "Boiler":
+Each scheduler creates one device with eighteen entities. For a scheduler named "Boiler":
 
 | Entity | Description |
 |---|---|
@@ -82,6 +82,8 @@ Each scheduler creates one device with sixteen entities. For a scheduler named "
 | `time.nordpool_scheduler_boiler_auto_start_time` | Where the hour range starts. Default 17:00. |
 | `time.nordpool_scheduler_boiler_auto_end_time` | Where the hour range ends. Default 23:00. |
 | `switch.nordpool_scheduler_boiler_auto_cheap_price_all_day` | Off by default. Turn it on to also run slots at or below **Auto cheap price** outside the hour range. |
+| `switch.nordpool_scheduler_boiler_auto_run_limit` | Off by default. Turn it on to cap how many separate runs auto mode makes each day, for a target like a boiler that shouldn't start often. |
+| `number.nordpool_scheduler_boiler_auto_max_runs_per_day` | How many runs a day **Auto run limit** allows. Default 1. |
 
 The auto mode switches, numbers and times keep their values across restarts.
 
@@ -95,6 +97,7 @@ With auto mode on, the scheduler picks which slots run instead of using the defa
 - A picked slot priced above **Auto max price** doesn't run, so on an expensive day the target can run for less than its hours.
 - Every slot at or below **Auto cheap price** runs, even past the hours.
 - With **Auto hour range** on, the hours are only picked between **Auto start time** and **Auto end time**, and every slot outside them is off. Cheap slots outside the range stay off too, unless **Auto cheap price all day** is on. An end time before the start time wraps past midnight, but each day is still picked on its own: 22:00 to 06:00 covers that day's 00:00 to 06:00 and 22:00 to midnight. Equal start and end times cover the whole day.
+- With **Auto run limit** on, the hours run in at most **Auto max runs per day** stretches of back-to-back slots, the cheapest such stretches of the day: at 1, two hours run as one unbroken two-hour run. A run never spans a slot above **Auto max price**, so the target can run for less than its hours. A slot at or below **Auto cheap price** only runs when it lengthens one of these runs, never as a run of its own. Each day counts its runs on its own, so a range that wraps past midnight is two stretches of the same day.
 - A day is only decided once every one of its slots has a price. Until then, for example tomorrow before Nord Pool publishes, its slots follow the default state, except those outside an **Auto hour range**, which are off.
 - An override always wins over auto mode's pick.
 

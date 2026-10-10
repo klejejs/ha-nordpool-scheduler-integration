@@ -63,6 +63,12 @@ def _build_auto_snapshot(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, A
         "cheap_all_day_entity": _entity_id_for(
             hass, "switch", f"{entry_id}_cheap_all_day"
         ),
+        "runs_limited": runtime.runs_limited,
+        "max_runs": int(runtime.max_runs),
+        "runs_limited_entity": _entity_id_for(
+            hass, "switch", f"{entry_id}_runs_limited"
+        ),
+        "max_runs_entity": _entity_id_for(hass, "number", f"{entry_id}_max_runs"),
     }
 
 
