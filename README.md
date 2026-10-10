@@ -65,7 +65,7 @@ Add one scheduler per entity. An entity can only have one scheduler.
 
 ## Entities
 
-Each scheduler creates one device with sixteen entities. For a scheduler named "Boiler":
+Each scheduler creates one device with eighteen entities. For a scheduler named "Boiler":
 
 | Entity | Description |
 |---|---|

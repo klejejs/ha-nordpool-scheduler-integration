@@ -76,7 +76,11 @@ def select_auto_slots(
                 if max_price == 0 or prices[slot] <= max_price
             }
             picked = _pick_runs(day_slots, prices, usable, run_slots, max_runs)
-            on = _grow_runs(day_slots, picked, cheap)
+            on = _grow_runs(
+                day_slots,
+                picked,
+                {slot for slot in cheap if max_price == 0 or prices[slot] <= max_price},
+            )
         decisions.update((slot, slot in on) for slot in day_slots)
     return decisions
 

@@ -234,6 +234,21 @@ def test_run_limit_lets_cheap_slots_extend_a_run_only() -> None:
     assert _on_indexes(decisions, DAY) == [29, 30, 31, 32, 33]
 
 
+def test_run_limit_grows_runs_only_up_to_max_price() -> None:
+    """A cheap price above max_price can't lengthen a run past max_price."""
+    raw = [50.0] * 96
+    raw[30], raw[31] = 1.0, 1.0
+    raw[29], raw[32] = 3.0, 6.0
+    decisions = _select(
+        _day_prices(DAY, raw),
+        run_hours=0.5,
+        max_price=5.0,
+        cheap_price=8.0,
+        max_runs=1,
+    )
+    assert _on_indexes(decisions, DAY) == [29, 30, 31]
+
+
 def test_run_limit_with_no_hours_runs_nothing() -> None:
     """Without hours to run there is no run for cheap slots to join."""
     decisions = _select(
