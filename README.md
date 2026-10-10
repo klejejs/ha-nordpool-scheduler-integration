@@ -184,6 +184,8 @@ scripts/test      # install test requirements, lint and run pytest
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how to submit changes.
 
+The [card](https://github.com/klejejs/ha-nordpool-scheduler-card)'s ⓘ button explains every feature and how they combine, from its `src/info.ts`. A user-facing change here, such as a new option, entity or auto mode behaviour, also updates that file and the card's README.
+
 ## Releasing
 
 Releases are made only through GitHub Releases. Pushing a tag on its own builds nothing.
