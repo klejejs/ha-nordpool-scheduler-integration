@@ -132,6 +132,9 @@
       },
       "cheap_all_day": {
         "name": "Auto cheap price all day"
+      },
+      "runs_limited": {
+        "name": "Auto run limit"
       }
     },
     "number": {
@@ -143,6 +146,9 @@
       },
       "cheap_price": {
         "name": "Auto cheap price"
+      },
+      "max_runs": {
+        "name": "Auto max runs per day"
       }
     },
     "time": {

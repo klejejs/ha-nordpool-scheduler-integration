@@ -16,6 +16,7 @@ from .auto import select_auto_slots
 from .const import (
     CONF_DEFAULT_STATE,
     CONF_TARGET_ENTITY,
+    DEFAULT_MAX_RUNS,
     DEFAULT_RUN_HOURS,
     DEFAULT_WINDOW_END,
     DEFAULT_WINDOW_START,
@@ -72,6 +73,8 @@ class NordpoolSchedulerRuntimeData:
     window_start: time = DEFAULT_WINDOW_START
     window_end: time = DEFAULT_WINDOW_END
     cheap_all_day: bool = False
+    runs_limited: bool = False
+    max_runs: float = DEFAULT_MAX_RUNS
     auto_slots: dict[datetime, bool] = field(default_factory=dict, repr=False)
     last_desired_state: bool | None = None
     restored_desired_state: bool | None = None
@@ -95,6 +98,7 @@ class NordpoolSchedulerRuntimeData:
                 (self.window_start, self.window_end) if self.window_enabled else None
             ),
             cheap_all_day=self.cheap_all_day,
+            max_runs=int(self.max_runs) if self.runs_limited else None,
         )
 
     def auto_pick(self, slot_start: datetime) -> bool | None:
