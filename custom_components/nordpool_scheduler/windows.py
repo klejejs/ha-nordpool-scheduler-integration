@@ -51,6 +51,18 @@ _OLD_SETTINGS: dict[str, tuple[str, Any]] = {
 }
 
 
+def whole_minute(at: time) -> time:
+    """Round a time up to the next whole minute.
+
+    Slots start on whole minutes, so a window bound with seconds picks the
+    same slots as the next minute, and is stored and shown as that.
+    """
+    if not at.second and not at.microsecond:
+        return at
+    minutes = min(at.hour * 60 + at.minute + 1, 23 * 60 + 59)
+    return time(minutes // 60, minutes % 60)
+
+
 def window_as_dict(window: AutoWindow) -> dict[str, Any]:
     """Return a window as stored on disk and sent to the card."""
     return {
@@ -171,7 +183,7 @@ def _parse(domain: str, stored: restore_state.StoredState) -> Any:
     if domain == "switch":
         return stored.state.state == STATE_ON
     if domain == "time":
-        return time.fromisoformat(stored.state.state)
+        return whole_minute(time.fromisoformat(stored.state.state))
     extra = stored.extra_data.as_dict() if stored.extra_data else {}
     value = extra.get("native_value")
     return float(stored.state.state if value is None else value)

@@ -326,3 +326,27 @@ async def test_set_auto_windows_requires_the_list(
             blocking=True,
         )
     assert len(mock_config_entry.runtime_data.windows.windows) == 1
+
+
+async def test_set_auto_windows_rounds_seconds_up(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """A bound with seconds is kept as the next minute, which picks the same slots."""
+    await _setup(hass, mock_config_entry, nordpool_prices)
+
+    await hass.services.async_call(
+        DOMAIN,
+        "set_auto_windows",
+        {
+            "config_entry": mock_config_entry.entry_id,
+            "windows": [{"start": "06:00:30", "end": "23:59:59", "hours": 1}],
+        },
+        blocking=True,
+    )
+    assert mock_config_entry.runtime_data.windows.windows == (
+        AutoWindow(start=time(6, 1), end=time(23, 59), hours=1),
+    )

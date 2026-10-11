@@ -131,13 +131,13 @@ async def test_hour_range_becomes_its_window(
         [
             _number("run_hours", 3),
             _state("window_enabled", "on"),
-            _state("window_start", "22:00:00"),
+            _state("window_start", "22:00:30"),
             _state("window_end", "06:00:00"),
         ],
     )
 
     assert entry.runtime_data.windows.windows == (
-        AutoWindow(start=time(22, 0), end=time(6, 0), hours=3),
+        AutoWindow(start=time(22, 1), end=time(6, 0), hours=3),
     )
     registry = er.async_get(hass)
     for entity_id in OLD_ENTITIES.values():

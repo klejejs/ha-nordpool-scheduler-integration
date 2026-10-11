@@ -37,6 +37,7 @@ from .const import (
 )
 from .control import async_apply_now
 from .util import is_prices_only, slot_start_for
+from .windows import whole_minute
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -90,8 +91,8 @@ SERVICE_SET_AUTO_WINDOWS_SCHEMA = vol.Schema(
             [
                 vol.Schema(
                     {
-                        vol.Required(ATTR_START): cv.time,
-                        vol.Required(ATTR_END): cv.time,
+                        vol.Required(ATTR_START): vol.All(cv.time, whole_minute),
+                        vol.Required(ATTR_END): vol.All(cv.time, whole_minute),
                         vol.Required(ATTR_HOURS): vol.All(
                             vol.Coerce(float),
                             vol.Range(min=0, max=24),
