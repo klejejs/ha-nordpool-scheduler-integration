@@ -111,6 +111,7 @@ Electric floor heating can run all day on cheap prices, but once the bathroom is
 - It wins over everything: auto mode's picks, the default state and your overrides.
 - The target turns off as soon as the stop sensor turns on, and the current slot is applied again as soon as it turns off, without waiting for the next quarter hour.
 - A stop sensor that is `unavailable`, `unknown` or missing is ignored, so the schedule carries on.
+- While **Scheduler enabled** is off the stop sensor does nothing either, and the card doesn't show it as stopped.
 - The schedule itself doesn't change: the card's grid keeps showing what would run, and auto mode doesn't pick extra slots to make up time lost to a stop.
 - With **Only act when the schedule changes**, the target is brought in line once when the stop starts, once when it ends, and at a restart while it is on, so a target turned on by hand is turned off too. A manual toggle in between is left alone. With **Enforce every 15 minutes**, the target is turned off again at every slot while the stop sensor is on.
 

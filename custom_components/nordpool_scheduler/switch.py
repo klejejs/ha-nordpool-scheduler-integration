@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.switch import SwitchDeviceClass, SwitchEntity
 from homeassistant.const import STATE_ON, EntityCategory
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .control import async_apply_now
@@ -64,12 +65,14 @@ class NordpoolSchedulerEnabledSwitch(RestoreEntity, SwitchEntity):
         self._attr_is_on = True
         self._entry.runtime_data.enabled = True
         self.async_write_ha_state()
+        async_dispatcher_send(self.hass, self._entry.runtime_data.update_signal)
 
     async def async_turn_off(self, **_kwargs: Any) -> None:
         """Disable scheduling; the target entity is left as-is."""
         self._attr_is_on = False
         self._entry.runtime_data.enabled = False
         self.async_write_ha_state()
+        async_dispatcher_send(self.hass, self._entry.runtime_data.update_signal)
 
 
 class NordpoolSchedulerAutoSettingSwitch(RestoreEntity, SwitchEntity):
