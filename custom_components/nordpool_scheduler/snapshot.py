@@ -125,6 +125,8 @@ def build_snapshot(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, Any]:
         "vat_percent": coordinator.vat_percent,
         "now_slot_start": slot_start_for(dt_util.utcnow()).isoformat(),
         "target_state": target_state.state if target_state else None,
+        "stop_entity": runtime.stop_entity,
+        "stopped": runtime.stopped(hass),
         "auto": _build_auto_snapshot(hass, entry),
         "averages": _build_averages(entry),
         "slots": slots,

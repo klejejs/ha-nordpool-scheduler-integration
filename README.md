@@ -61,6 +61,7 @@ Add one scheduler per entity. An entity can only have one scheduler.
 | Target entity | | The entity to control |
 | Default state | Default OFF | The state for slots with no override while auto mode is off |
 | Manual toggles | Only act when the schedule changes | **Only act when the schedule changes** leaves an entity you toggled by hand alone until the schedule wants something different or you change the current slot. **Enforce every 15 minutes** re-applies the schedule at every slot. |
+| Stop sensor | | Optional. A `binary_sensor`, `input_boolean` or `switch` that keeps the target off while it is on. See [Stop sensor](#stop-sensor). |
 | VAT percentage | 21 | Added on top of the Nord Pool price |
 
 ## Entities
@@ -71,7 +72,7 @@ Each scheduler creates one device with eighteen entities. For a scheduler named 
 |---|---|
 | `sensor.nordpool_scheduler_boiler_electricity_price` | The current slot's price in cents (1/100 of your Nord Pool currency) per kWh, VAT included. Attributes: `area`, `vat_percent`. |
 | `sensor.nordpool_scheduler_boiler_average_price_today` | The average price while the target was on, in c/kWh. Also `_this_week`, `_this_month` and `_this_year`. See [Average price](#average-price). |
-| `binary_sensor.nordpool_scheduler_boiler_scheduled_on` | On when the schedule wants the target on for the current slot. Attributes: `target_entity`, `target_state`, and `source` (`override`, `auto` or `default`). |
+| `binary_sensor.nordpool_scheduler_boiler_scheduled_on` | On when the schedule wants the target on for the current slot. Attributes: `target_entity`, `target_state`, and `source` (`override`, `auto`, `default`, or `stopped` while the [stop sensor](#stop-sensor) is on). |
 | `sensor.nordpool_scheduler_boiler_schedule` | Disabled by default. Publishes what the card shows as its `schedule` attribute, for a [second instance](#another-home-assistant-instance) that mirrors this one. The state is the start of the current slot. |
 | `switch.nordpool_scheduler_boiler_scheduler_enabled` | Turn it off to pause the scheduler. The target is left as it is until you turn the switch back on. |
 | `switch.nordpool_scheduler_boiler_auto_mode` | Auto mode, off by default. See [Auto mode](#auto-mode). |
@@ -103,6 +104,16 @@ With auto mode on, the scheduler picks which slots run instead of using the defa
 
 Turning auto mode on or off, or changing one of its settings, takes effect for the current slot at once.
 
+## Stop sensor
+
+Electric floor heating can run all day on cheap prices, but once the bathroom is warm enough there is no point heating it. The scheduler doesn't read temperatures itself. Instead, under **Configure**, pick a **Stop sensor**: any `binary_sensor`, `input_boolean` or `switch`. While it is on, the target is kept off. A [Threshold](https://www.home-assistant.io/integrations/threshold/) helper on the bathroom's temperature, on above 26 °C, does the job.
+
+- It wins over everything: auto mode's picks, the default state and your overrides.
+- The target turns off as soon as the stop sensor turns on, and the current slot is applied again as soon as it turns off, without waiting for the next quarter hour.
+- A stop sensor that is `unavailable`, `unknown` or missing is ignored, so the schedule carries on.
+- The schedule itself doesn't change: the card's grid keeps showing what would run, and auto mode doesn't pick extra slots to make up time lost to a stop.
+- With **Only act when the schedule changes**, the target is brought in line once when the stop starts, once when it ends, and at a restart while it is on, so a target turned on by hand is turned off too. A manual toggle in between is left alone. With **Enforce every 15 minutes**, the target is turned off again at every slot while the stop sensor is on.
+
 ## Average price
 
 The average price sensors report what the target's running time has cost per kWh so far today, this week, this month and this year. Each slot's price counts for as long as the target was on during it. The periods follow Home Assistant's time zone, and weeks start on Monday.
@@ -116,7 +127,7 @@ The average price sensors report what the target's running time has cost per kWh
 ## How it works
 
 - The day is split into 15-minute slots. A slot is either overridden **on**, overridden **off**, or follows auto mode's pick when auto mode is on and the default state otherwise.
-- At 00, 15, 30 and 45 past each hour the scheduler works out what the current slot wants and turns the target on or off. Changing an override, auto mode or one of its settings re-checks the current slot straight away. Changing the current slot's override also switches the target to match it, even if you toggled the target by hand.
+- At 00, 15, 30 and 45 past each hour the scheduler works out what the current slot wants and turns the target on or off. While the [stop sensor](#stop-sensor) is on it wants off, whatever the slot says. Changing an override, auto mode or one of its settings re-checks the current slot straight away. Changing the current slot's override also switches the target to match it, even if you toggled the target by hand.
 - With **Only act when the schedule changes**, it only calls `turn_on` or `turn_off` when the wanted state differs from the previous slot's.
 - After a restart or reload, **Only act when the schedule changes** picks up where it left off: the wanted state is saved on disk, and the target is only switched if the current slot wants something different from what it wanted before. A manual toggle survives the restart. On a first install, and in **Enforce every 15 minutes**, it brings the target back in line with the current slot, switching it only if its state differs.
 - A target that is `unavailable` or `unknown` is skipped for that slot.

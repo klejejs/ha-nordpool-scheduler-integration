@@ -80,4 +80,4 @@ class NordpoolSchedulerScheduledOnSensor(BinarySensorEntity):
 
     def _current_slot_state(self) -> tuple[bool, str]:
         slot_start = slot_start_for(dt_util.utcnow())
-        return self._entry.runtime_data.slot_state(slot_start)
+        return self._entry.runtime_data.live_state(self.hass, slot_start)

@@ -60,12 +60,14 @@
           "target_entity": "Target Entity",
           "default_state": "Default State",
           "control_mode": "Manual toggles",
+          "stop_entity": "Stop sensor",
           "vat_percent": "VAT percentage"
         },
         "data_description": {
           "target_entity": "The entity to control (switch, input_boolean, light, fan, or climate)",
           "default_state": "Default state when no schedule override is set for a slot",
           "control_mode": "Whether to leave a manually-toggled entity alone until the schedule changes, or re-apply the schedule every 15 minutes",
+          "stop_entity": "While this entity is on, the target is kept off whatever the schedule says, overrides included. Leave empty to never stop.",
           "vat_percent": "Added on top of the Nord Pool price"
         }
       },
@@ -81,7 +83,9 @@
     },
     "error": {
       "invalid_target": "The selected entity does not exist",
-      "already_configured": "This entity already has a scheduler"
+      "already_configured": "This entity already has a scheduler",
+      "invalid_stop_entity": "The selected stop sensor does not exist",
+      "stop_is_target": "The stop sensor can't be the target entity itself"
     }
   },
   "entity": {
@@ -114,7 +118,8 @@
             "state": {
               "override": "Override",
               "auto": "Auto mode",
-              "default": "Default state"
+              "default": "Default state",
+              "stopped": "Stop sensor"
             }
           }
         }
