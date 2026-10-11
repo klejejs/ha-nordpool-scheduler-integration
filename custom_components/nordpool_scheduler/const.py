@@ -13,9 +13,13 @@ CONF_NORDPOOL_ENTRY_ID: Final = "nordpool_config_entry_id"
 CONF_AREA: Final = "area"
 CONF_VAT_PERCENT: Final = "vat_percent"
 CONF_CONTROL_MODE: Final = "control_mode"
+CONF_STOP_ENTITY: Final = "stop_entity"
 
 # Supported target domains (all support turn_on/turn_off)
 SUPPORTED_DOMAINS: Final = ["switch", "input_boolean", "light", "fan", "climate"]
+
+# The target is held off while a stop entity of one of these domains is on
+STOP_ENTITY_DOMAINS: Final = ["binary_sensor", "input_boolean", "switch"]
 
 STATE_DEFAULT_OFF: Final = "off"
 STATE_DEFAULT_ON: Final = "on"
@@ -37,6 +41,7 @@ DEFAULT_MAX_RUNS: Final = 1
 SLOT_SOURCE_OVERRIDE: Final = "override"
 SLOT_SOURCE_AUTO: Final = "auto"
 SLOT_SOURCE_DEFAULT: Final = "default"
+SLOT_SOURCE_STOPPED: Final = "stopped"
 
 # The upstream Nord Pool integration we depend on for prices
 NORDPOOL_DOMAIN: Final = "nordpool"

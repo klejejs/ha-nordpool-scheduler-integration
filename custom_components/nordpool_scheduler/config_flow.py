@@ -16,6 +16,7 @@ from .const import (
     CONF_DEFAULT_STATE,
     CONF_NORDPOOL_ENTRY_ID,
     CONF_SCHEDULER_NAME,
+    CONF_STOP_ENTITY,
     CONF_TARGET_ENTITY,
     CONF_VAT_PERCENT,
     CONTROL_MODE_ENFORCE,
@@ -25,6 +26,7 @@ from .const import (
     NORDPOOL_DOMAIN,
     STATE_DEFAULT_OFF,
     STATE_DEFAULT_ON,
+    STOP_ENTITY_DOMAINS,
     SUPPORTED_DOMAINS,
 )
 from .util import is_prices_only
@@ -49,6 +51,12 @@ _CONTROL_MODE_OPTIONS = [
 def _target_entity_selector() -> selector.EntitySelector:
     return selector.EntitySelector(
         selector.EntitySelectorConfig(domain=SUPPORTED_DOMAINS)
+    )
+
+
+def _stop_entity_selector() -> selector.EntitySelector:
+    return selector.EntitySelector(
+        selector.EntitySelectorConfig(domain=STOP_ENTITY_DOMAINS)
     )
 
 
@@ -220,8 +228,13 @@ class NordpoolSchedulerOptionsFlowHandler(config_entries.OptionsFlowWithReload):
 
         if user_input is not None:
             target_entity = user_input[CONF_TARGET_ENTITY]
+            stop_entity = user_input.get(CONF_STOP_ENTITY)
             if not self.hass.states.get(target_entity):
                 errors["base"] = "invalid_target"
+            elif stop_entity and not self.hass.states.get(stop_entity):
+                errors["base"] = "invalid_stop_entity"
+            elif stop_entity == target_entity:
+                errors["base"] = "stop_is_target"
             elif any(
                 entry.unique_id == target_entity
                 for entry in self.hass.config_entries.async_entries(DOMAIN)
@@ -247,6 +260,10 @@ class NordpoolSchedulerOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                     CONF_CONTROL_MODE,
                     default=current.get(CONF_CONTROL_MODE, CONTROL_MODE_ON_CHANGE),
                 ): _control_mode_selector(),
+                vol.Optional(
+                    CONF_STOP_ENTITY,
+                    description={"suggested_value": current.get(CONF_STOP_ENTITY)},
+                ): _stop_entity_selector(),
                 vol.Required(
                     CONF_VAT_PERCENT,
                     default=current.get(CONF_VAT_PERCENT, DEFAULT_VAT_PERCENT),

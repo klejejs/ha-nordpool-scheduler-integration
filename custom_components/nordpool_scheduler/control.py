@@ -122,7 +122,7 @@ async def async_apply_slot(
         return
 
     slot_start = slot_start_for(now)
-    desired_on, _source = runtime.slot_state(slot_start)
+    desired_on, source = runtime.live_state(hass, slot_start)
 
     runtime.schedule.prune_ended(now)
 
@@ -168,7 +168,11 @@ async def async_apply_slot(
         else:
             _set_last_desired_state(runtime, state=desired_on)
             _LOGGER.debug(
-                "%s: slot %s -> %s", entry.title, slot_start.isoformat(), desired_on
+                "%s: slot %s -> %s (%s)",
+                entry.title,
+                slot_start.isoformat(),
+                desired_on,
+                source,
             )
 
     async_dispatcher_send(hass, runtime.update_signal)

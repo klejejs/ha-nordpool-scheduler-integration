@@ -5,16 +5,27 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, Platform
-from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, STATE_ON, Platform
+from homeassistant.core import (
+    CALLBACK_TYPE,
+    Event,
+    EventStateChangedData,
+    HomeAssistant,
+    State,
+    callback,
+)
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.dispatcher import async_dispatcher_send
-from homeassistant.helpers.event import async_track_utc_time_change
+from homeassistant.helpers.event import (
+    async_track_state_change_event,
+    async_track_utc_time_change,
+)
 from homeassistant.util import dt as dt_util
 
 from .auto import select_auto_slots
 from .const import (
     CONF_DEFAULT_STATE,
+    CONF_STOP_ENTITY,
     CONF_TARGET_ENTITY,
     DEFAULT_MAX_RUNS,
     DEFAULT_RUN_HOURS,
@@ -24,9 +35,10 @@ from .const import (
     SLOT_SOURCE_AUTO,
     SLOT_SOURCE_DEFAULT,
     SLOT_SOURCE_OVERRIDE,
+    SLOT_SOURCE_STOPPED,
     STATE_DEFAULT_ON,
 )
-from .control import DesiredStateStore, async_apply_slot
+from .control import DesiredStateStore, async_apply_now, async_apply_slot
 from .coordinator import NordpoolSchedulerPriceCoordinator
 from .schedule import ScheduleStore
 from .services import async_setup_services
@@ -64,6 +76,7 @@ class NordpoolSchedulerRuntimeData:
     desired_state: DesiredStateStore
     entry_id: str
     default_on: bool = False
+    stop_entity: str | None = None
     enabled: bool = True
     auto_enabled: bool = False
     run_hours: float = DEFAULT_RUN_HOURS
@@ -121,6 +134,22 @@ class NordpoolSchedulerRuntimeData:
             return override, SLOT_SOURCE_OVERRIDE
         return self.base_state(slot_start)
 
+    def stopped(self, hass: HomeAssistant) -> bool:
+        """Return whether the stop entity is holding the target off."""
+        if self.stop_entity is None:
+            return False
+        return _is_stopping(hass.states.get(self.stop_entity))
+
+    def live_state(self, hass: HomeAssistant, slot_start: datetime) -> tuple[bool, str]:
+        """Return what the target should do now, with the stop entity applied."""
+        if self.stopped(hass):
+            return False, SLOT_SOURCE_STOPPED
+        return self.slot_state(slot_start)
+
+
+def _is_stopping(state: State | None) -> bool:
+    return state is not None and state.state == STATE_ON
+
 
 async def async_setup(hass: HomeAssistant, _config: ConfigType) -> bool:
     """Set up services and the websocket API shared by all entries."""
@@ -155,6 +184,7 @@ async def async_setup_entry(
         desired_state=desired_state,
         entry_id=entry.entry_id,
         default_on=settings.get(CONF_DEFAULT_STATE) == STATE_DEFAULT_ON,
+        stop_entity=settings.get(CONF_STOP_ENTITY) or None,
         restored_desired_state=restored_desired_state,
     )
     runtime.refresh_auto(hass)
@@ -200,6 +230,22 @@ async def async_setup_entry(
     entry.async_on_unload(
         async_track_utc_time_change(hass, _on_tick, minute=[0, 15, 30, 45], second=0)
     )
+
+    if runtime.stop_entity is not None:
+
+        @callback
+        def _on_stop_change(event: Event[EventStateChangedData]) -> None:
+            if _is_stopping(event.data["old_state"]) == _is_stopping(
+                event.data["new_state"]
+            ):
+                return
+            entry.async_create_task(
+                hass, async_apply_now(hass, entry), "nordpool_scheduler_stop"
+            )
+
+        entry.async_on_unload(
+            async_track_state_change_event(hass, [runtime.stop_entity], _on_stop_change)
+        )
 
     return True
 
