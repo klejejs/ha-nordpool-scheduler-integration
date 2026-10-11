@@ -66,7 +66,7 @@ Add one scheduler per entity. An entity can only have one scheduler.
 
 ## Entities
 
-Each scheduler creates one device with eighteen entities. For a scheduler named "Boiler":
+Each scheduler creates one device with eleven entities. For a scheduler named "Boiler":
 
 | Entity | Description |
 |---|---|
@@ -76,33 +76,88 @@ Each scheduler creates one device with eighteen entities. For a scheduler named 
 | `sensor.nordpool_scheduler_boiler_schedule` | Disabled by default. Publishes what the card shows as its `schedule` attribute, for a [second instance](#another-home-assistant-instance) that mirrors this one. The state is the start of the current slot. |
 | `switch.nordpool_scheduler_boiler_scheduler_enabled` | Turn it off to pause the scheduler. The target is left as it is until you turn the switch back on. |
 | `switch.nordpool_scheduler_boiler_auto_mode` | Auto mode, off by default. See [Auto mode](#auto-mode). |
-| `number.nordpool_scheduler_boiler_auto_hours_per_day` | Hours a day auto mode runs the target, in 15-minute steps. Default 2. |
-| `number.nordpool_scheduler_boiler_auto_max_price` | Auto mode skips a picked slot above this price, in c/kWh. 0 turns the limit off. |
-| `number.nordpool_scheduler_boiler_auto_cheap_price` | Auto mode also runs every slot at or below this price, in c/kWh. 0 turns it off. |
-| `switch.nordpool_scheduler_boiler_auto_hour_range` | Off by default. Turn it on to have auto mode only run the target between the start and end times. |
-| `time.nordpool_scheduler_boiler_auto_start_time` | Where the hour range starts. Default 17:00. |
-| `time.nordpool_scheduler_boiler_auto_end_time` | Where the hour range ends. Default 23:00. |
-| `switch.nordpool_scheduler_boiler_auto_cheap_price_all_day` | Off by default. Turn it on to also run slots at or below **Auto cheap price** outside the hour range. |
-| `switch.nordpool_scheduler_boiler_auto_run_limit` | Off by default. Turn it on to cap how many separate runs auto mode makes each day, for a target like a boiler that shouldn't start often. |
+| `switch.nordpool_scheduler_boiler_auto_run_limit` | Off by default. Turn it on to make each [time window](#time-windows)'s hours run back to back, and to cap how many separate runs auto mode makes each day, for a target like a boiler or floor heating that shouldn't start often. |
 | `number.nordpool_scheduler_boiler_auto_max_runs_per_day` | How many runs a day **Auto run limit** allows. Default 1. |
 
-The auto mode switches, numbers and times keep their values across restarts.
+The auto mode switches and number keep their values across restarts. The [time windows](#time-windows) aren't entities: set them from the card or with [`set_auto_windows`](#nordpool_schedulerset_auto_windows).
 
 A prices-only entry's schedule sensor works the same way.
 
 ## Auto mode
 
-With auto mode on, the scheduler picks which slots run instead of using the default state:
+With auto mode on, the scheduler picks which slots run instead of using the default state. It runs the target in a list of **time windows**, each for its own time in the cheapest slots inside it.
 
-- Each local day, midnight to midnight in Home Assistant's time zone, runs in its cheapest slots, adding up to **Auto hours per day**. A tie goes to the earlier slot.
-- A picked slot priced above **Auto max price** doesn't run, so on an expensive day the target can run for less than its hours.
-- Every slot at or below **Auto cheap price** runs, even past the hours.
-- With **Auto hour range** on, the hours are only picked between **Auto start time** and **Auto end time**, and every slot outside them is off. Cheap slots outside the range stay off too, unless **Auto cheap price all day** is on. An end time before the start time wraps past midnight, but each day is still picked on its own: 22:00 to 06:00 covers that day's 00:00 to 06:00 and 22:00 to midnight. Equal start and end times cover the whole day.
-- With **Auto run limit** on, the hours run in at most **Auto max runs per day** stretches of back-to-back slots, the cheapest such stretches of the day: at 1, two hours run as one unbroken two-hour run. A run never spans a slot above **Auto max price**, so the target can run for less than its hours. A slot at or below **Auto cheap price** only runs when it lengthens one of these runs, never as a run of its own. Each day counts its runs on its own, so a range that wraps past midnight is two stretches of the same day.
-- A day is only decided once every one of its slots has a price. Until then, for example tomorrow before Nord Pool publishes, its slots follow the default state, except those outside an **Auto hour range**, which are off.
+What stays global and what each window sets:
+
+| Global | Per time window |
+|---|---|
+| **Auto mode**, on or off | **From** and **To**, the time of day it covers |
+| **Auto run limit**, on or off | **Run for**, the hours it runs in its cheapest slots |
+| **Auto max runs per day** | **Max price**: the slots it picks for its hours are never above this. 0 turns it off. |
+| | **Cheap price**: its slots at or below this run too. 0 turns it off. |
+
+A new scheduler starts with one window, 00:00 to 23:59 for 2 hours, with no price limits: the target runs in the two cheapest hours of each day.
+
+### Time windows
+
+- **From and To.** A To before From wraps past midnight, so 20:00 to 00:00 is 20:00 to midnight. From equal to To, or 00:00 to 23:59, is the whole day. Each local day, midnight to midnight in Home Assistant's time zone, is picked on its own, so a window that wraps past midnight is two stretches of the same day.
+- **Run for.** Each window runs its hours in its cheapest slots, a tie going to the earlier slot. The day runs for the windows' hours added together.
+- **Narrowest first.** Windows are picked from the shortest From to To up, so a morning window takes its slots before a whole-day window fills in around it.
+- **Max price.** A window never picks a slot above its max price for its hours, so on an expensive day it can run for less than its hours, or not at all. With **Auto run limit** off, a cheap price set above the max price still runs its cheap slots; with the run limit on, cheap slots stay at or below the max price too.
+- **Cheap price.** Every slot in a window at or below its cheap price runs too, even past the hours. A window that runs for 0 hours picks nothing, but its cheap price still applies, so a whole-day window with 0 hours and a cheap price runs every cheap slot of the day.
+- **Outside every window** the target is off.
+- Windows can overlap. Each picks on its own, and a slot runs if any window picks it.
+- A day is only decided once every one of its slots has a price. Until then, for example tomorrow before Nord Pool publishes, slots inside a window that runs for some time follow the default state, and every other slot is off.
 - An override always wins over auto mode's pick.
 
-Turning auto mode on or off, or changing one of its settings, takes effect for the current slot at once.
+### Run limit
+
+With **Auto run limit** on, each window's hours run in back-to-back stretches, and the whole day makes at most **Auto max runs per day** of them.
+
+- Every window that runs for some time gets at least one run. The narrower windows go first, and a window can use more runs only when the limit leaves enough for the windows after it.
+- If more windows run for some time than the limit allows, each still gets its one run, so the day makes more runs than the limit.
+- A window's slots that join onto a run made earlier lengthen it without counting as another run.
+- A run never spans a slot above that window's max price.
+- A slot at or below a cheap price only runs when it lengthens a run, never as a run of its own.
+
+Turning auto mode on or off, changing the run limit or changing the windows takes effect for the current slot at once.
+
+### Examples
+
+**Bathroom floor: morning, evening and once more.** Auto run limit on, at most 3 runs, and three windows:
+
+| From | To | Run for | Max price | Cheap price |
+|---|---|---|---|---|
+| 06:00 | 08:00 | 45 min | 25 | 0 |
+| 19:00 | 22:00 | 1 h | 15 | 3 |
+| 00:00 | 23:59 | 15 min | 15 | 0 |
+
+1. 06:00 to 08:00 is the narrowest, so it goes first: the cheapest 45 unbroken minutes between 06:00 and 08:00 that don't cost more than 25 c/kWh.
+2. 19:00 to 22:00 goes next: its cheapest unbroken hour at no more than 15 c/kWh. Any slot next to that hour at 3 c/kWh or less runs too.
+3. The whole-day window gets the third run: its cheapest 15 minutes at no more than 15 c/kWh, anywhere in the day. If that slot sits next to the morning or evening run, it lengthens that run instead.
+4. On a day where nothing outside the morning costs 15 c/kWh or less, the evening and whole-day windows don't run, and only the morning run happens.
+
+**One evening run, and up to two more at any time.** Auto run limit on, at most 3 runs:
+
+| From | To | Run for |
+|---|---|---|
+| 20:00 | 00:00 | 1 h |
+| 00:00 | 23:59 | 1.5 h |
+
+1. The evening window is the narrower one, so its cheapest hour between 20:00 and midnight is picked first, as one run.
+2. The whole-day window can then make up to two more runs, so the 1.5 hours go to the cheapest slots in at most two stretches: two runs, one longer run, or added onto the evening run.
+3. Two more runs is a maximum, not a promise. To always run twice more, use two windows instead, such as 00:00 to 12:00 and 12:00 to 20:00. To keep the extra runs out of the evening, end the wide window at 20:00.
+
+**A range with cheap slots all day.** One window 17:00 to 23:00 for 2 hours, and a second window 00:00 to 23:59 for 0 hours with a cheap price of 3. The target runs the two cheapest hours between 17:00 and 23:00, and any slot of the day at 3 c/kWh or less.
+
+### Coming from an older version
+
+Auto mode used to have a single **Auto hours per day**, **Auto max price** and **Auto cheap price** for the whole day, and an **Auto hour range** with **Auto cheap price all day**. Updating turns them into time windows that pick exactly the same slots, and removes those seven entities:
+
+- Without an hour range, they become one window 00:00 to 23:59 with the same hours and prices.
+- With an hour range, they become one window over the range. With cheap price all day on as well, a second window 00:00 to 23:59 for 0 hours, with the same prices, keeps the cheap slots outside the range running.
+
+Automations that set the removed entities should call [`set_auto_windows`](#nordpool_schedulerset_auto_windows) instead.
 
 ## Stop sensor
 
@@ -164,6 +219,24 @@ data:
   config_entry: 01JABCDEF0123456789ABCDEFG
 ```
 
+### `nordpool_scheduler.set_auto_windows`
+
+Replaces every [time window](#time-windows) auto mode runs in. `max_price` and `cheap_price` are optional and default to 0, which turns them off. An empty list leaves auto mode nothing to run.
+
+```yaml
+action: nordpool_scheduler.set_auto_windows
+data:
+  config_entry: 01JABCDEF0123456789ABCDEFG
+  windows:
+    - start: "06:00"
+      end: "08:00"
+      hours: 0.75
+      max_price: 25
+    - start: "20:00"
+      end: "00:00"
+      hours: 1
+```
+
 `config_entry` is the scheduler's config entry ID. Pick the scheduler from the dropdown in the action editor and switch to YAML to see it.
 
 ## Another Home Assistant instance
@@ -171,7 +244,7 @@ data:
 The card normally asks this integration for its data directly, so it only works on the instance the integration runs on. To show a scheduler on a second instance that mirrors this one with [Remote Home-Assistant](https://github.com/custom-components/remote_homeassistant), have it publish that data as an entity:
 
 1. On the instance that runs the scheduler, enable its **Schedule** sensor, e.g. `sensor.nordpool_scheduler_boiler_schedule`. It's a diagnostic entity, disabled by default.
-2. On the mirroring instance, make sure Remote Home-Assistant mirrors the scheduler's entities, and proxies `nordpool_scheduler.set_slots` with a service prefix. With `entity_prefix: darzs_`, use `service_prefix: darzs_` as well, so the card finds `nordpool_scheduler.darzs_set_slots` without being told.
+2. On the mirroring instance, make sure Remote Home-Assistant mirrors the scheduler's entities, and proxies `nordpool_scheduler.set_slots` and `nordpool_scheduler.set_auto_windows` with a service prefix. With `entity_prefix: darzs_`, use `service_prefix: darzs_` as well, so the card finds `nordpool_scheduler.darzs_set_slots` and `nordpool_scheduler.darzs_set_auto_windows` without being told.
 3. Point the card at the mirrored schedule sensor, e.g. `sensor.darzs_nordpool_scheduler_boiler_schedule`. See the card's README for the rest.
 
 The attribute stays under 4 KB and this instance's recorder leaves it out. The mirroring instance doesn't know that, so exclude the mirrored sensor from its recorder:

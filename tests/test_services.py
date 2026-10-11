@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import TYPE_CHECKING
 
 import pytest
 import voluptuous as vol
 from homeassistant.exceptions import ServiceValidationError
 
+from custom_components.nordpool_scheduler.auto import AutoWindow
 from custom_components.nordpool_scheduler.const import DOMAIN
 from custom_components.nordpool_scheduler.util import slot_start_for
 
@@ -216,3 +217,136 @@ async def test_set_slots_rejects_prices_entry(
             },
             blocking=True,
         )
+
+
+async def test_set_auto_windows_replaces_and_clears(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """The windows are replaced as a whole, sorted by start, and can be emptied."""
+    await _setup(hass, mock_config_entry, nordpool_prices)
+
+    await hass.services.async_call(
+        DOMAIN,
+        "set_auto_windows",
+        {
+            "config_entry": mock_config_entry.entry_id,
+            "windows": [
+                {"start": "20:00", "end": "00:00", "hours": 1},
+                {"start": "06:00", "end": "08:00", "hours": 0.75, "max_price": 25},
+            ],
+        },
+        blocking=True,
+    )
+    assert mock_config_entry.runtime_data.windows.windows == (
+        AutoWindow(start=time(6, 0), end=time(8, 0), hours=0.75, max_price=25),
+        AutoWindow(start=time(20, 0), end=time(0, 0), hours=1),
+    )
+    assert mock_config_entry.runtime_data.run_hours == 1.75
+
+    await hass.services.async_call(
+        DOMAIN,
+        "set_auto_windows",
+        {"config_entry": mock_config_entry.entry_id, "windows": []},
+        blocking=True,
+    )
+    assert mock_config_entry.runtime_data.windows.windows == ()
+
+
+@pytest.mark.parametrize(
+    "window",
+    [
+        {"start": "06:00", "end": "08:00", "hours": 25},
+        {"start": "06:00", "end": "08:00", "hours": -1},
+        {"start": "6 am", "end": "08:00", "hours": 1},
+        {"start": "06:00", "hours": 1},
+        {"start": "06:00", "end": "08:00", "hours": 1, "max_price": -1},
+        {"start": "06:00", "end": "08:00", "hours": 0.3},
+    ],
+)
+async def test_set_auto_windows_rejects_bad_windows(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+    window: dict,
+) -> None:
+    """A window with a bad time, hours or price is refused."""
+    await _setup(hass, mock_config_entry, nordpool_prices)
+
+    with pytest.raises(vol.Invalid):
+        await hass.services.async_call(
+            DOMAIN,
+            "set_auto_windows",
+            {"config_entry": mock_config_entry.entry_id, "windows": [window]},
+            blocking=True,
+        )
+
+
+async def test_set_auto_windows_rejects_prices_entry(
+    hass: HomeAssistant,
+    mock_prices_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """A prices-only entry has no auto mode to set windows for."""
+    await _setup(hass, mock_prices_entry, nordpool_prices)
+
+    with pytest.raises(ServiceValidationError):
+        await hass.services.async_call(
+            DOMAIN,
+            "set_auto_windows",
+            {
+                "config_entry": mock_prices_entry.entry_id,
+                "windows": [{"start": "06:00", "end": "08:00", "hours": 1}],
+            },
+            blocking=True,
+        )
+
+
+async def test_set_auto_windows_requires_the_list(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """Leaving the windows out is refused rather than clearing them."""
+    await _setup(hass, mock_config_entry, nordpool_prices)
+
+    with pytest.raises(vol.Invalid):
+        await hass.services.async_call(
+            DOMAIN,
+            "set_auto_windows",
+            {"config_entry": mock_config_entry.entry_id},
+            blocking=True,
+        )
+    assert len(mock_config_entry.runtime_data.windows.windows) == 1
+
+
+async def test_set_auto_windows_rounds_seconds_up(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """A bound with seconds is kept as the next minute, which picks the same slots."""
+    await _setup(hass, mock_config_entry, nordpool_prices)
+
+    await hass.services.async_call(
+        DOMAIN,
+        "set_auto_windows",
+        {
+            "config_entry": mock_config_entry.entry_id,
+            "windows": [{"start": "06:00:30", "end": "23:59:59", "hours": 1}],
+        },
+        blocking=True,
+    )
+    assert mock_config_entry.runtime_data.windows.windows == (
+        AutoWindow(start=time(6, 1), end=time(23, 59), hours=1),
+    )

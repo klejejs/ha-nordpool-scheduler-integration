@@ -22,6 +22,7 @@ from .const import (
 )
 from .stats import WINDOWS
 from .util import local_midnight, slot_start_for
+from .windows import window_as_dict
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -46,23 +47,7 @@ def _build_auto_snapshot(hass: HomeAssistant, entry: ConfigEntry) -> dict[str, A
         "enabled": runtime.auto_enabled,
         "switch_entity": _entity_id_for(hass, "switch", f"{entry_id}_auto_mode"),
         "run_hours": runtime.run_hours,
-        "max_price": runtime.max_price,
-        "cheap_price": runtime.cheap_price,
-        "run_hours_entity": _entity_id_for(hass, "number", f"{entry_id}_run_hours"),
-        "max_price_entity": _entity_id_for(hass, "number", f"{entry_id}_max_price"),
-        "cheap_price_entity": _entity_id_for(hass, "number", f"{entry_id}_cheap_price"),
-        "window_enabled": runtime.window_enabled,
-        "window_start": runtime.window_start.strftime("%H:%M"),
-        "window_end": runtime.window_end.strftime("%H:%M"),
-        "cheap_all_day": runtime.cheap_all_day,
-        "window_enabled_entity": _entity_id_for(
-            hass, "switch", f"{entry_id}_window_enabled"
-        ),
-        "window_start_entity": _entity_id_for(hass, "time", f"{entry_id}_window_start"),
-        "window_end_entity": _entity_id_for(hass, "time", f"{entry_id}_window_end"),
-        "cheap_all_day_entity": _entity_id_for(
-            hass, "switch", f"{entry_id}_cheap_all_day"
-        ),
+        "windows": [window_as_dict(window) for window in runtime.windows.windows],
         "runs_limited": runtime.runs_limited,
         "max_runs": int(runtime.max_runs),
         "runs_limited_entity": _entity_id_for(

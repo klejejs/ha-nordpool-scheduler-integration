@@ -132,36 +132,13 @@
       "auto_mode": {
         "name": "Auto mode"
       },
-      "window_enabled": {
-        "name": "Auto hour range"
-      },
-      "cheap_all_day": {
-        "name": "Auto cheap price all day"
-      },
       "runs_limited": {
         "name": "Auto run limit"
       }
     },
     "number": {
-      "run_hours": {
-        "name": "Auto hours per day"
-      },
-      "max_price": {
-        "name": "Auto max price"
-      },
-      "cheap_price": {
-        "name": "Auto cheap price"
-      },
       "max_runs": {
         "name": "Auto max runs per day"
-      }
-    },
-    "time": {
-      "window_start": {
-        "name": "Auto start time"
-      },
-      "window_end": {
-        "name": "Auto end time"
       }
     }
   },
@@ -201,6 +178,45 @@
         "config_entry": {
           "name": "Scheduler",
           "description": "The Nordpool Scheduler entry to clear"
+        }
+      }
+    },
+    "set_auto_windows": {
+      "name": "Set auto time windows",
+      "description": "Replace the time windows auto mode runs in. Each window runs for its hours in the cheapest slots between its start and end. An end before the start wraps past midnight.",
+      "fields": {
+        "config_entry": {
+          "name": "Scheduler",
+          "description": "The Nordpool Scheduler entry to update"
+        },
+        "windows": {
+          "name": "Windows",
+          "description": "Every window auto mode runs in. An empty list leaves auto mode with nothing to run."
+        }
+      }
+    }
+  },
+  "selector": {
+    "auto_window": {
+      "fields": {
+        "start": {
+          "name": "From"
+        },
+        "end": {
+          "name": "To",
+          "description": "Before From wraps past midnight. Equal to From covers the whole day."
+        },
+        "hours": {
+          "name": "Run for",
+          "description": "Hours to run in the cheapest slots of this window. 0 picks nothing, but the cheap price still applies."
+        },
+        "max_price": {
+          "name": "Max price",
+          "description": "Skip slots above this price. 0 turns the limit off."
+        },
+        "cheap_price": {
+          "name": "Cheap price",
+          "description": "Also run every slot at or below this price. 0 turns it off."
         }
       }
     }

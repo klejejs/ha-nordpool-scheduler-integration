@@ -29,8 +29,6 @@ async def async_setup_entry(
         [
             NordpoolSchedulerEnabledSwitch(entry),
             NordpoolSchedulerAutoModeSwitch(entry),
-            NordpoolSchedulerWindowSwitch(entry),
-            NordpoolSchedulerCheapAllDaySwitch(entry),
             NordpoolSchedulerRunsLimitSwitch(entry),
         ]
     )
@@ -129,20 +127,6 @@ class NordpoolSchedulerAutoModeSwitch(NordpoolSchedulerAutoSettingSwitch):
 
     _key = "auto_mode"
     _runtime_attr = "auto_enabled"
-
-
-class NordpoolSchedulerWindowSwitch(NordpoolSchedulerAutoSettingSwitch):
-    """Only pick slots between auto mode's start and end times."""
-
-    _key = "window_enabled"
-    _runtime_attr = "window_enabled"
-
-
-class NordpoolSchedulerCheapAllDaySwitch(NordpoolSchedulerAutoSettingSwitch):
-    """Run slots at or below the cheap price outside the hour range too."""
-
-    _key = "cheap_all_day"
-    _runtime_attr = "cheap_all_day"
 
 
 class NordpoolSchedulerRunsLimitSwitch(NordpoolSchedulerAutoSettingSwitch):

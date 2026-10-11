@@ -22,15 +22,12 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.util import dt as dt_util
 
-from .auto import select_auto_slots
+from .auto import blocks_slot, select_auto_slots
 from .const import (
     CONF_DEFAULT_STATE,
     CONF_STOP_ENTITY,
     CONF_TARGET_ENTITY,
     DEFAULT_MAX_RUNS,
-    DEFAULT_RUN_HOURS,
-    DEFAULT_WINDOW_END,
-    DEFAULT_WINDOW_START,
     DOMAIN,
     SLOT_SOURCE_AUTO,
     SLOT_SOURCE_DEFAULT,
@@ -45,9 +42,10 @@ from .services import async_setup_services
 from .stats import PriceStats
 from .util import is_prices_only
 from .websocket_api import async_setup_websocket_api
+from .windows import AutoWindowStore, async_migrate_windows
 
 if TYPE_CHECKING:
-    from datetime import datetime, time
+    from datetime import datetime, tzinfo
 
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.helpers.typing import ConfigType
@@ -57,7 +55,6 @@ PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
     Platform.SWITCH,
     Platform.NUMBER,
-    Platform.TIME,
 ]
 PRICES_PLATFORMS: list[Platform] = [Platform.SENSOR]
 
@@ -74,21 +71,16 @@ class NordpoolSchedulerRuntimeData:
     schedule: ScheduleStore
     stats: PriceStats
     desired_state: DesiredStateStore
+    windows: AutoWindowStore
     entry_id: str
     default_on: bool = False
     stop_entity: str | None = None
     enabled: bool = True
     auto_enabled: bool = False
-    run_hours: float = DEFAULT_RUN_HOURS
-    max_price: float = 0.0
-    cheap_price: float = 0.0
-    window_enabled: bool = False
-    window_start: time = DEFAULT_WINDOW_START
-    window_end: time = DEFAULT_WINDOW_END
-    cheap_all_day: bool = False
     runs_limited: bool = False
     max_runs: float = DEFAULT_MAX_RUNS
     auto_slots: dict[datetime, bool] = field(default_factory=dict, repr=False)
+    time_zone: tzinfo = field(default=dt_util.DEFAULT_TIME_ZONE, repr=False)
     last_desired_state: bool | None = None
     restored_desired_state: bool | None = None
     unsub_tick: CALLBACK_TYPE | None = field(default=None, repr=False)
@@ -98,19 +90,19 @@ class NordpoolSchedulerRuntimeData:
         """Dispatcher signal fired when the schedule or prices change."""
         return f"{DOMAIN}_updated_{self.entry_id}"
 
+    @property
+    def run_hours(self) -> float:
+        """Return how long the time windows run for in total each day."""
+        return sum(window.hours for window in self.windows.windows)
+
     def refresh_auto(self, hass: HomeAssistant) -> None:
         """Recompute auto mode's picks from the current prices and settings."""
         tz = dt_util.get_time_zone(hass.config.time_zone) or dt_util.DEFAULT_TIME_ZONE
+        self.time_zone = tz
         self.auto_slots = select_auto_slots(
             self.coordinator.data or {},
             tz,
-            run_hours=self.run_hours,
-            max_price=self.max_price,
-            cheap_price=self.cheap_price,
-            window=(
-                (self.window_start, self.window_end) if self.window_enabled else None
-            ),
-            cheap_all_day=self.cheap_all_day,
+            windows=self.windows.windows,
             max_runs=int(self.max_runs) if self.runs_limited else None,
         )
 
@@ -118,7 +110,12 @@ class NordpoolSchedulerRuntimeData:
         """Return auto mode's choice for a slot, or None if it makes none."""
         if not self.auto_enabled:
             return None
-        return self.auto_slots.get(slot_start)
+        pick = self.auto_slots.get(slot_start)
+        if pick is None and blocks_slot(
+            slot_start, self.time_zone, self.windows.windows
+        ):
+            return False
+        return pick
 
     def base_state(self, slot_start: datetime) -> tuple[bool, str]:
         """Return what auto mode or the default wants, ignoring overrides."""
@@ -177,11 +174,15 @@ async def async_setup_entry(
     )
     restored_desired_state = await desired_state.async_load()
 
+    windows = AutoWindowStore(hass, entry.entry_id)
+    await windows.async_load()
+
     runtime = NordpoolSchedulerRuntimeData(
         coordinator=coordinator,
         schedule=schedule,
         stats=stats,
         desired_state=desired_state,
+        windows=windows,
         entry_id=entry.entry_id,
         default_on=settings.get(CONF_DEFAULT_STATE) == STATE_DEFAULT_ON,
         stop_entity=settings.get(CONF_STOP_ENTITY) or None,
@@ -255,6 +256,19 @@ async def async_setup_entry(
     return True
 
 
+async def async_migrate_entry(
+    hass: HomeAssistant, entry: NordpoolSchedulerConfigEntry
+) -> bool:
+    """Migrate an entry from an older version."""
+    if entry.version > 1:
+        return False
+    if entry.minor_version < 2:  # noqa: PLR2004
+        if not is_prices_only(entry):
+            await async_migrate_windows(hass, entry)
+        hass.config_entries.async_update_entry(entry, minor_version=2)
+    return True
+
+
 async def async_unload_entry(
     hass: HomeAssistant, entry: NordpoolSchedulerConfigEntry
 ) -> bool:
@@ -267,6 +281,7 @@ async def async_unload_entry(
         runtime = entry.runtime_data
         await runtime.schedule.async_flush()
         await runtime.desired_state.async_flush()
+        await runtime.windows.async_flush()
         runtime.stats.sample(dt_util.utcnow())
         await runtime.stats.async_flush()
     return unload_ok

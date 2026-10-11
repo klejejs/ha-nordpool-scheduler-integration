@@ -7,7 +7,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from custom_components.nordpool_scheduler.auto import select_auto_slots
+from custom_components.nordpool_scheduler.auto import AutoWindow, select_auto_slots
+from custom_components.nordpool_scheduler.windows import migrated_windows
 
 TZ = ZoneInfo("Europe/Riga")
 DAY = date(2026, 1, 14)
@@ -27,9 +28,46 @@ def _on_indexes(decisions: dict[datetime, bool], day: date) -> list[int]:
     )
 
 
-def _select(prices: dict[datetime, float], **kwargs: object) -> dict[datetime, bool]:
-    settings = {"run_hours": 1.0, "max_price": 0.0, "cheap_price": 0.0, **kwargs}
-    return select_auto_slots(prices, TZ, **settings)
+def _row(start: str, end: str, hours: float, **prices: float) -> AutoWindow:
+    return AutoWindow(
+        start=time.fromisoformat(start),
+        end=time.fromisoformat(end),
+        hours=hours,
+        **prices,
+    )
+
+
+def _select(
+    prices: dict[datetime, float],
+    *,
+    run_hours: float = 1.0,
+    max_price: float = 0.0,
+    cheap_price: float = 0.0,
+    window: tuple[time, time] | None = None,
+    cheap_all_day: bool = False,
+    max_runs: int | None = None,
+) -> dict[datetime, bool]:
+    """Pick with the old per-day settings, as migration turns them into rows."""
+    windows = migrated_windows(
+        {
+            "run_hours": run_hours,
+            "max_price": max_price,
+            "cheap_price": cheap_price,
+            "window_enabled": window is not None,
+            "window_start": window[0] if window else None,
+            "window_end": window[1] if window else None,
+            "cheap_all_day": cheap_all_day,
+        }
+    )
+    return select_auto_slots(prices, TZ, windows=windows, max_runs=max_runs)
+
+
+def _pick(
+    prices: dict[datetime, float],
+    *windows: AutoWindow,
+    max_runs: int | None = None,
+) -> dict[datetime, bool]:
+    return select_auto_slots(prices, TZ, windows=windows, max_runs=max_runs)
 
 
 def test_picks_cheapest_slots_of_the_day() -> None:
@@ -287,3 +325,150 @@ def test_run_limit_on_a_dst_day() -> None:
         for slot, on in decisions.items()
         if on
     ) == [96, 97, 98, 99]
+
+
+def test_whole_day_row_covers_every_slot() -> None:
+    """00:00 to 23:59 takes in the day's last slot, 23:45."""
+    raw = [50.0] * 96
+    raw[95] = 1.0
+    decisions = _pick(_day_prices(DAY, raw), _row("00:00", "23:59", 0.25))
+    assert _on_indexes(decisions, DAY) == [95]
+
+
+def test_rows_outside_every_window_are_off() -> None:
+    """Only slots inside a row can run, however cheap the rest are."""
+    raw = [1.0] * 96
+    for i in range(24, 32):
+        raw[i] = 50.0
+    decisions = _pick(_day_prices(DAY, raw), _row("06:00", "08:00", 0.5))
+    assert _on_indexes(decisions, DAY) == [24, 25]
+
+
+def test_no_rows_runs_nothing() -> None:
+    """An empty list decides every slot of the day as off."""
+    decisions = _pick(_day_prices(DAY, [1.0] * 96))
+    assert len(decisions) == 96
+    assert not any(decisions.values())
+
+
+def test_each_row_runs_its_own_hours() -> None:
+    """A morning, an evening and a whole-day row each get one run of 3."""
+    raw = [50.0] * 96
+    raw[24:28] = [40.0] * 4  # 06:00, the cheapest hour of 06:00-08:00
+    raw[80:84] = [30.0] * 4  # 20:00, the cheapest hour of 19:00-22:00
+    raw[8:12] = [1.0] * 4  # 02:00, the cheapest hour of the day
+    rows = (
+        _row("06:00", "08:00", 1),
+        _row("19:00", "22:00", 1),
+        _row("00:00", "23:59", 1),
+    )
+    decisions = _pick(_day_prices(DAY, raw), *rows, max_runs=3)
+    assert _on_indexes(decisions, DAY) == [8, 9, 10, 11, 24, 25, 26, 27, 80, 81, 82, 83]
+
+
+def test_narrow_rows_pick_before_wide_ones() -> None:
+    """A wide row can't take the slots a narrower row inside it needs."""
+    raw = [50.0] * 96
+    raw[80:84] = [1.0] * 4  # 20:00-21:00, cheapest of the whole day
+    rows = (_row("00:00", "23:59", 1), _row("20:00", "21:00", 1))
+    decisions = _pick(_day_prices(DAY, raw), *rows, max_runs=2)
+    on = _on_indexes(decisions, DAY)
+    assert on[4:] == [80, 81, 82, 83]
+    assert len(on) == 8
+
+
+def test_wide_row_extends_a_narrow_run_without_a_new_run() -> None:
+    """Slots joining onto an earlier row's run cost no extra run."""
+    raw = [50.0] * 96
+    raw[80:84] = [5.0] * 4  # 20:00-21:00
+    raw[84:88] = [2.0] * 4  # 21:00-22:00, right after it
+    rows = (_row("20:00", "21:00", 1), _row("00:00", "23:59", 1))
+    decisions = _pick(_day_prices(DAY, raw), *rows, max_runs=1)
+    assert _on_indexes(decisions, DAY) == list(range(80, 88))
+
+
+def test_evening_run_plus_at_most_two_anywhere() -> None:
+    """The wide row may open the runs the limit leaves after the evening one."""
+    raw = [50.0] * 96
+    raw[80:84] = [10.0] * 4  # 20:00
+    raw[8:11] = [1.0] * 3  # 02:00
+    raw[52:55] = [1.0] * 3  # 13:00
+    raw[70:73] = [1.0] * 3  # 17:30, a third cheap stretch with no run left
+    rows = (_row("20:00", "00:00", 1), _row("00:00", "23:59", 1.5))
+    decisions = _pick(_day_prices(DAY, raw), *rows, max_runs=3)
+    assert _on_indexes(decisions, DAY) == [8, 9, 10, 52, 53, 54, 80, 81, 82, 83]
+
+
+def test_every_row_gets_a_run_past_the_limit() -> None:
+    """More rows with hours than max runs still run each row once."""
+    raw = [50.0] * 96
+    rows = (_row("06:00", "07:00", 0.25), _row("12:00", "13:00", 0.25))
+    decisions = _pick(_day_prices(DAY, raw), *rows, max_runs=1)
+    assert _on_indexes(decisions, DAY) == [24, 48]
+
+
+def test_row_max_price_skips_its_run() -> None:
+    """A row whose slots are all above its max price doesn't run."""
+    raw = [20.0] * 96
+    rows = (_row("06:00", "08:00", 1, max_price=10), _row("00:00", "06:00", 0.25))
+    decisions = _pick(_day_prices(DAY, raw), *rows, max_runs=3)
+    assert _on_indexes(decisions, DAY) == [0]
+
+
+def test_max_price_is_per_row() -> None:
+    """Each row skips only the slots above its own max price."""
+    raw = [20.0] * 96
+    rows = (
+        _row("06:00", "08:00", 0.5, max_price=25),
+        _row("19:00", "22:00", 0.5, max_price=15),
+    )
+    decisions = _pick(_day_prices(DAY, raw), *rows)
+    assert _on_indexes(decisions, DAY) == [24, 25]
+
+
+def test_cheap_price_is_per_row() -> None:
+    """A row's cheap price adds slots inside it only."""
+    raw = [50.0] * 96
+    raw[10], raw[30], raw[80] = 2.0, 2.0, 2.0
+    rows = (_row("06:00", "08:00", 0, cheap_price=3), _row("19:00", "22:00", 0))
+    decisions = _pick(_day_prices(DAY, raw), *rows)
+    assert _on_indexes(decisions, DAY) == [30]
+
+
+def test_zero_hour_row_runs_cheap_slots_anywhere() -> None:
+    """A whole-day row with no hours still runs its cheap slots."""
+    raw = [50.0] * 96
+    raw[8] = 1.0
+    raw[70] = 4.0
+    rows = (_row("17:00", "23:00", 0.25), _row("00:00", "23:59", 0, cheap_price=2))
+    decisions = _pick(_day_prices(DAY, raw), *rows)
+    assert _on_indexes(decisions, DAY) == [8, 70]
+
+
+def test_row_wrapping_midnight_runs_in_one_stretch() -> None:
+    """A run in a row past midnight stays in one end of the day."""
+    raw = [50.0] * 96
+    raw[0], raw[95] = 1.0, 1.0
+    decisions = _pick(_day_prices(DAY, raw), _row("22:00", "06:00", 0.5), max_runs=1)
+    assert _on_indexes(decisions, DAY) == [0, 1]
+
+
+def test_floor_heating_example() -> None:
+    """The README's bathroom floor example runs the way it describes."""
+    rows = (
+        _row("06:00", "08:00", 0.75, max_price=25),
+        _row("19:00", "22:00", 1, max_price=15, cheap_price=3),
+        _row("00:00", "23:59", 0.25, max_price=15),
+    )
+    raw = [50.0] * 96
+    raw[24:32] = [22.0] * 8
+    raw[26:29] = [20.0] * 3  # 06:30-07:15, above 15 but within the morning's 25
+    raw[76:88] = [14.0] * 12
+    raw[80:84] = [10.0] * 4  # 20:00-21:00
+    raw[40] = 5.0  # 10:00
+    decisions = _pick(_day_prices(DAY, raw), *rows, max_runs=3)
+    assert _on_indexes(decisions, DAY) == [26, 27, 28, 40, 80, 81, 82, 83]
+
+    expensive = [20.0] * 96
+    decisions = _pick(_day_prices(DAY, expensive), *rows, max_runs=3)
+    assert _on_indexes(decisions, DAY) == [24, 25, 26]
