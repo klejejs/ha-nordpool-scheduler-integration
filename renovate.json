@@ -3,6 +3,8 @@
   "extends": ["config:recommended"],
   "minimumReleaseAge": "2 days",
   "rangeStrategy": "pin",
+  "prHourlyLimit": 0,
+  "prConcurrentLimit": 0,
   "packageRules": [
     {
       "description": "Home Assistant must match the homeassistant key in hacs.json, and the test harness is released in lockstep with it",
