@@ -210,7 +210,10 @@ async def async_setup_entry(
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     async def _async_apply_initial_state(_event: object = None) -> None:
-        await async_apply_slot(hass, entry, dt_util.utcnow())
+        # A stop must hold even if the target was turned on while we were down.
+        await async_apply_slot(
+            hass, entry, dt_util.utcnow(), sync_target=runtime.stopped(hass)
+        )
 
     if hass.is_running:
         await _async_apply_initial_state()
@@ -240,7 +243,9 @@ async def async_setup_entry(
             ):
                 return
             entry.async_create_task(
-                hass, async_apply_now(hass, entry), "nordpool_scheduler_stop"
+                hass,
+                async_apply_now(hass, entry, sync_target=True),
+                "nordpool_scheduler_stop",
             )
 
         entry.async_on_unload(

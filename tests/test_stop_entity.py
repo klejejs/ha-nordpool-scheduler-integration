@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.const import EVENT_CALL_SERVICE
 from homeassistant.data_entry_flow import FlowResultType
@@ -21,6 +21,7 @@ from custom_components.nordpool_scheduler.const import (
     CONF_VAT_PERCENT,
     CONTROL_MODE_ENFORCE,
     CONTROL_MODE_ON_CHANGE,
+    DESIRED_STATE_STORAGE_KEY_PREFIX,
     DOMAIN,
     STATE_DEFAULT_ON,
 )
@@ -36,6 +37,7 @@ if TYPE_CHECKING:
 STOP = "binary_sensor.bathroom_too_hot"
 SCHEDULED_ON = "binary_sensor.nordpool_scheduler_test_scheduled_on"
 PRICE_SENSOR = "sensor.nordpool_scheduler_test_electricity_price"
+DESIRED_STATE_KEY = f"{DESIRED_STATE_STORAGE_KEY_PREFIX}.scheduler_entry_id"
 
 
 async def _setup_with_stop(
@@ -286,3 +288,41 @@ async def test_snapshot_reports_stop_entity(
         if slot["start"] == snapshot["now_slot_start"]
     )
     assert current["effective"] == "on"
+
+
+async def test_stop_turns_off_a_target_turned_on_by_hand(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """In on_change mode a stop still turns off a target the slot already wants off."""
+    await _setup_with_stop(
+        hass, mock_config_entry, nordpool_prices, default_state="off"
+    )
+    hass.states.async_set(mock_target, "on")
+
+    await _set_stop(hass, "on")
+    assert hass.states.get(mock_target).state == "off"
+
+
+async def test_restart_while_stopped_turns_target_off(
+    hass: HomeAssistant,
+    hass_storage: dict[str, Any],
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """A target found on after a restart is turned off while the stop is on."""
+    hass_storage[DESIRED_STATE_KEY] = {
+        "version": 1,
+        "minor_version": 1,
+        "key": DESIRED_STATE_KEY,
+        "data": {"target_entity": mock_target, "desired_on": False},
+    }
+    hass.states.async_set(mock_target, "on")
+
+    await _setup_with_stop(hass, mock_config_entry, nordpool_prices, stop_state="on")
+    assert hass.states.get(mock_target).state == "off"
