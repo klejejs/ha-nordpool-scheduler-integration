@@ -326,3 +326,29 @@ async def test_restart_while_stopped_turns_target_off(
 
     await _setup_with_stop(hass, mock_config_entry, nordpool_prices, stop_state="on")
     assert hass.states.get(mock_target).state == "off"
+
+
+async def test_snapshot_not_stopped_while_scheduler_disabled(
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """A disabled scheduler doesn't act on the stop sensor, so it isn't stopped."""
+    await _setup_with_stop(hass, mock_config_entry, nordpool_prices, stop_state="on")
+    client = await hass_ws_client(hass)
+    await client.send_json(
+        {"id": 1, "type": "nordpool_scheduler/subscribe", "entity_id": PRICE_SENSOR}
+    )
+    assert (await client.receive_json())["success"]
+    assert (await client.receive_json())["event"]["stopped"] is True
+
+    await hass.services.async_call(
+        "switch",
+        "turn_off",
+        {"entity_id": "switch.nordpool_scheduler_test_scheduler_enabled"},
+        blocking=True,
+    )
+    assert (await client.receive_json())["event"]["stopped"] is False
