@@ -145,7 +145,7 @@ async def async_apply_slot(
     if not should_call:
         _set_last_desired_state(runtime, state=desired_on)
     else:
-        domain = target_entity.split(".")[0]
+        domain = target_entity.split(".", maxsplit=1)[0]
         try:
             await hass.services.async_call(
                 domain,

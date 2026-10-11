@@ -83,7 +83,7 @@ def _window_from_dict(data: dict[str, Any]) -> AutoWindow | None:
             max_price=float(data.get(ATTR_MAX_PRICE, 0)),
             cheap_price=float(data.get(ATTR_CHEAP_PRICE, 0)),
         )
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         return None
 
 
