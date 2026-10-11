@@ -174,13 +174,14 @@ def _pick_runs(
             for row in after_on
         ]
         here_on = [
-            list(map(min, off, on)) for off, on in zip(after_off, take, strict=True)
+            list(map(min, off, on, strict=True))
+            for off, on in zip(after_off, take, strict=True)
         ]
         # Turning on after an off slot opens a run, so it costs one run more.
         here_off = [
             after_off[0],
             *(
-                list(map(min, off, on))
+                list(map(min, off, on, strict=True))
                 for off, on in zip(after_off[1:], take, strict=False)
             ),
         ]

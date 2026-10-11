@@ -45,7 +45,7 @@ async def test_scheduling_turns_on_each_supported_domain(
 ) -> None:
     """A slot scheduled on calls <domain>.turn_on for every supported domain."""
     hass.states.async_set(target_entity, "off")
-    domain = target_entity.split(".")[0]
+    domain = target_entity.split(".", maxsplit=1)[0]
 
     entry = MockConfigEntry(
         domain=DOMAIN,

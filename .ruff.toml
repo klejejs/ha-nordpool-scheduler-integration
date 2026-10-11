@@ -17,6 +17,8 @@ ignore = [
     "TRY301", # Abstract raise to inner function (overly strict)
     "PLR0915", # Too many statements (service registration function groups related handlers)
     "PLR0913", # Too many arguments (also ignored by home-assistant/core itself)
+    "PLR0917", # Too many positional arguments (pytest fixtures are positional)
+    "CPY001", # Missing copyright notice (the LICENSE file covers the repository)
 ]
 
 [lint.flake8-pytest-style]
