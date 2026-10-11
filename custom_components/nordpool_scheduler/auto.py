@@ -1,8 +1,10 @@
-"""Auto mode: pick the cheapest slots of each local day."""
+"""Auto mode: pick the cheapest slots of each time window, day by day."""
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+import math
+from dataclasses import dataclass
+from datetime import datetime, time, timedelta
 from typing import TYPE_CHECKING
 
 from homeassistant.util import dt as dt_util
@@ -10,79 +12,114 @@ from homeassistant.util import dt as dt_util
 from .const import SLOT_MINUTES
 
 if TYPE_CHECKING:
-    from datetime import date, time, tzinfo
+    from collections.abc import Sequence
+    from datetime import date, tzinfo
+
+# A DP state that can't be reached, e.g. a forced slot turned off.
+_INFEASIBLE = (math.inf, math.inf)
+
+
+@dataclass(frozen=True, kw_only=True)
+class AutoWindow:
+    """A time of day auto mode runs in, for how long and at what prices.
+
+    An end before the start wraps past midnight, and an end equal to the
+    start covers the whole day. A price of 0 turns that limit off.
+    """
+
+    start: time
+    end: time
+    hours: float
+    max_price: float = 0.0
+    cheap_price: float = 0.0
+
+    @property
+    def slot_count(self) -> int:
+        """Return how many whole slots the window runs for."""
+        return int(self.hours * 60 // SLOT_MINUTES)
 
 
 def select_auto_slots(
     prices: dict[datetime, float],
     tz: tzinfo,
     *,
-    run_hours: float,
-    max_price: float,
-    cheap_price: float,
-    window: tuple[time, time] | None = None,
-    cheap_all_day: bool = False,
+    windows: Sequence[AutoWindow],
     max_runs: int | None = None,
 ) -> dict[datetime, bool]:
     """Decide on or off for every slot of each fully priced local day.
 
-    Per day, the ``run_hours`` cheapest slots inside ``window`` are on, minus
-    any above ``max_price``, plus any inside it at or below ``cheap_price``,
-    or anywhere in the day with ``cheap_all_day``. A threshold of 0 is off.
-    Days missing a price for any slot are left out, apart from the slots
-    outside ``window``, so they follow the default state rather than a
-    choice made on half the day.
+    Per day, each window runs its cheapest ``hours`` inside it, skipping
+    slots above its max price, plus every slot inside it at or below its
+    cheap price. Slots outside every window are off. Days missing a price
+    for any slot are left out, apart from the slots outside every window,
+    so they follow the default state rather than a choice made on half
+    the day.
 
-    With ``max_runs``, the picks form at most that many runs of back-to-back
-    slots, none above ``max_price``, and a cheap slot only runs when it
-    joins onto one of them.
+    Windows pick narrowest first. With ``max_runs``, each window's picks
+    form back-to-back runs: every window gets at least one, the day at
+    most ``max_runs`` unless there are more windows than that, and a
+    cheap slot only runs when it joins onto a run.
     """
-    run_slots = int(run_hours * 60 // SLOT_MINUTES)
     days = {dt_util.as_utc(start).astimezone(tz).date() for start in prices}
 
     decisions: dict[datetime, bool] = {}
     for day in days:
         day_slots = _local_day_slots(day, tz)
-        in_window = {
-            slot
-            for slot in day_slots
-            if _in_window(dt_util.as_utc(slot).astimezone(tz).time(), window)
-        }
+        local = {slot: dt_util.as_utc(slot).astimezone(tz).time() for slot in day_slots}
+        covers = [
+            {slot for slot in day_slots if _in_window(local[slot], window)}
+            for window in windows
+        ]
         if any(slot not in prices for slot in day_slots):
-            # Outside the range is off whatever the prices turn out to be.
-            decisions.update(
-                (slot, False) for slot in day_slots if slot not in in_window
+            # Only a window with hours can run before cheap slots are known.
+            running = set().union(
+                *(
+                    cover
+                    for window, cover in zip(windows, covers, strict=True)
+                    if window.slot_count > 0
+                )
             )
+            decisions.update((slot, False) for slot in day_slots if slot not in running)
             continue
-        cheap = {
-            slot
-            for slot in day_slots
-            if cheap_price > 0
-            and prices[slot] <= cheap_price
-            and (cheap_all_day or slot in in_window)
-        }
-        if max_runs is None:
-            by_price = sorted(in_window, key=lambda slot: (prices[slot], slot))
-            picked = {
-                slot
-                for slot in by_price[:run_slots]
-                if max_price == 0 or prices[slot] <= max_price
-            }
-            on = picked | cheap
-        else:
+
+        order = sorted(
+            (i for i, window in enumerate(windows) if window.slot_count > 0),
+            key=lambda i: (len(covers[i]), windows[i].start),
+        )
+        taken: set[datetime] = set()
+        for position, i in enumerate(order):
+            window = windows[i]
             usable = {
                 slot
-                for slot in in_window
-                if max_price == 0 or prices[slot] <= max_price
+                for slot in covers[i] - taken
+                if _within(prices[slot], window.max_price)
             }
-            picked = _pick_runs(day_slots, prices, usable, run_slots, max_runs)
-            on = _grow_runs(
-                day_slots,
-                picked,
-                {slot for slot in cheap if max_price == 0 or prices[slot] <= max_price},
+            if max_runs is None:
+                by_price = sorted(usable, key=lambda slot: (prices[slot], slot))
+                taken |= set(by_price[: window.slot_count])
+                continue
+            runs_used = _count_runs(day_slots, taken)
+            later = len(order) - position - 1
+            allowed = runs_used + max(1, max_runs - runs_used - later)
+            taken = _pick_runs(
+                day_slots, prices, usable, window.slot_count, allowed, taken
             )
+
+        cheap = {
+            slot
+            for window, cover in zip(windows, covers, strict=True)
+            if window.cheap_price > 0
+            for slot in cover
+            if prices[slot] <= window.cheap_price
+            and (max_runs is None or _within(prices[slot], window.max_price))
+        }
+        on = taken | cheap if max_runs is None else _grow_runs(day_slots, taken, cheap)
         decisions.update((slot, slot in on) for slot in day_slots)
     return decisions
+
+
+def _within(price: float, max_price: float) -> bool:
+    return max_price == 0 or price <= max_price
 
 
 def _pick_runs(
@@ -91,32 +128,38 @@ def _pick_runs(
     usable: set[datetime],
     count: int,
     max_runs: int,
+    forced: set[datetime] | None = None,
 ) -> set[datetime]:
-    """Return the cheapest ``count`` usable slots in at most ``max_runs`` runs.
+    """Return ``forced`` plus the cheapest ``count`` usable slots.
 
-    A run is a stretch of back-to-back slots. When the runs can't hold
-    ``count`` slots, as many as fit are picked. Ties go to the earlier slot.
+    Together they make at most ``max_runs`` runs of back-to-back slots, so
+    ``forced`` must fit in that many. When the runs can't hold ``count``
+    more slots, as many as fit are picked. Ties go to the earlier slot.
     """
+    forced = forced or set()
     cheapest = set(sorted(usable, key=lambda slot: (prices[slot], slot))[:count])
-    if _count_runs(slots, cheapest) <= max_runs:
-        return cheapest
+    if _count_runs(slots, forced | cheapest) <= max_runs:
+        return forced | cheapest
 
     # best[i][prev_on][runs][left] is (-slots picked, total price) over
     # slots[i:], given whether slots[i - 1] is on and the runs and slots
-    # still allowed. Lower is better.
-    runs_cap = min(max_runs, count)
-    not_allowed = (1, 0.0)
+    # still allowed. Lower is better. Forced slots count toward neither.
+    runs_cap = min(max_runs, count + _count_runs(slots, forced))
     nothing_left = [[(0, 0.0)] * (count + 1) for _ in range(runs_cap + 1)]
     best = [(nothing_left, nothing_left)]
     for slot in reversed(slots):
         after_off, after_on = best[-1]
+        if slot in forced:
+            # On either way; after an off slot it opens a run.
+            best.append(([[_INFEASIBLE] * (count + 1), *after_on[:-1]], after_on))
+            continue
         if slot not in usable:
             best.append((after_off, after_off))
             continue
         price = prices[slot]
         # take[runs][left]: turn this slot on, carrying on a run already open
         take = [
-            [not_allowed, *((n - 1, cost + price) for n, cost in row[:-1])]
+            [_INFEASIBLE, *((n - 1, cost + price) for n, cost in row[:-1])]
             for row in after_on
         ]
         here_on = [
@@ -136,6 +179,11 @@ def _pick_runs(
     picked: set[datetime] = set()
     runs, left, prev_on = runs_cap, count, False
     for i, slot in enumerate(slots):
+        if slot in forced:
+            picked.add(slot)
+            runs = runs if prev_on else runs - 1
+            prev_on = True
+            continue
         runs_after = runs if prev_on else runs - 1
         take_it = slot in usable and left > 0 and runs_after >= 0
         if take_it:
@@ -170,15 +218,9 @@ def _count_runs(slots: list[datetime], on: set[datetime]) -> int:
     )
 
 
-def _in_window(at: time, window: tuple[time, time] | None) -> bool:
-    """Return whether a local time of day falls in the window.
-
-    An end before the start wraps past midnight, and an end equal to the
-    start covers the whole day.
-    """
-    if window is None:
-        return True
-    start, end = window
+def _in_window(at: time, window: AutoWindow) -> bool:
+    """Return whether a local time of day falls in the window."""
+    start, end = window.start, window.end
     if start == end:
         return True
     if start < end:

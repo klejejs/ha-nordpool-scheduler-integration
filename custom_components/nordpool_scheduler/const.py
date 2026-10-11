@@ -34,8 +34,8 @@ DEFAULT_VAT_PERCENT: Final = 21
 PRICE_UNIT: Final = "c/kWh"
 
 DEFAULT_RUN_HOURS: Final = 2.0
-DEFAULT_WINDOW_START: Final = time(17, 0)
-DEFAULT_WINDOW_END: Final = time(23, 0)
+DEFAULT_WINDOW_START: Final = time(0, 0)
+DEFAULT_WINDOW_END: Final = time(23, 59)
 DEFAULT_MAX_RUNS: Final = 1
 
 SLOT_SOURCE_OVERRIDE: Final = "override"
@@ -51,11 +51,17 @@ NORDPOOL_TIMEZONE_NAME: Final = "Europe/Oslo"  # CET/CEST, used for publish sche
 # Our services
 SERVICE_SET_SLOTS: Final = "set_slots"
 SERVICE_CLEAR_SCHEDULE: Final = "clear_schedule"
+SERVICE_SET_AUTO_WINDOWS: Final = "set_auto_windows"
 
 ATTR_CONFIG_ENTRY: Final = "config_entry"
 ATTR_SLOTS: Final = "slots"
 ATTR_START: Final = "start"
 ATTR_STATE: Final = "state"
+ATTR_WINDOWS: Final = "windows"
+ATTR_END: Final = "end"
+ATTR_HOURS: Final = "hours"
+ATTR_MAX_PRICE: Final = "max_price"
+ATTR_CHEAP_PRICE: Final = "cheap_price"
 
 SLOT_STATE_ON: Final = "on"
 SLOT_STATE_OFF: Final = "off"
@@ -66,6 +72,7 @@ STORAGE_VERSION: Final = 1
 STORAGE_KEY_PREFIX: Final = f"{DOMAIN}.schedule"
 STATS_STORAGE_KEY_PREFIX: Final = f"{DOMAIN}.stats"
 DESIRED_STATE_STORAGE_KEY_PREFIX: Final = f"{DOMAIN}.desired_state"
+WINDOWS_STORAGE_KEY_PREFIX: Final = f"{DOMAIN}.auto_windows"
 
 # How far back/forward of "now" a requested slot may be
 MAX_SLOT_LOOKAHEAD_DAYS: Final = 2

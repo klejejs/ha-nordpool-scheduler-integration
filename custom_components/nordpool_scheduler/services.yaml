@@ -18,3 +18,54 @@ clear_schedule:
       selector:
         config_entry:
           integration: nordpool_scheduler
+
+set_auto_windows:
+  fields:
+    config_entry:
+      required: true
+      selector:
+        config_entry:
+          integration: nordpool_scheduler
+    windows:
+      required: true
+      example: '[{"start": "06:00", "end": "08:00", "hours": 0.75, "max_price": 25, "cheap_price": 0}]'
+      selector:
+        object:
+          multiple: true
+          label_field: start
+          description_field: end
+          translation_key: auto_window
+          fields:
+            start:
+              required: true
+              selector:
+                time:
+            end:
+              required: true
+              selector:
+                time:
+            hours:
+              required: true
+              selector:
+                number:
+                  min: 0
+                  max: 24
+                  step: 0.25
+                  unit_of_measurement: h
+                  mode: box
+            max_price:
+              selector:
+                number:
+                  min: 0
+                  max: 1000
+                  step: 0.01
+                  unit_of_measurement: c/kWh
+                  mode: box
+            cheap_price:
+              selector:
+                number:
+                  min: 0
+                  max: 1000
+                  step: 0.01
+                  unit_of_measurement: c/kWh
+                  mode: box

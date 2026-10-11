@@ -193,6 +193,7 @@ def mock_config_entry(mock_nordpool_entry: MockConfigEntry) -> MockConfigEntry:
         },
         entry_id="scheduler_entry_id",
         unique_id="input_boolean.test_target",
+        minor_version=2,
     )
 
 
@@ -205,4 +206,5 @@ def mock_prices_entry(mock_nordpool_entry: MockConfigEntry) -> MockConfigEntry:
         data={CONF_NORDPOOL_ENTRY_ID: mock_nordpool_entry.entry_id, CONF_AREA: AREA},
         entry_id="prices_entry_id",
         unique_id=f"prices_{mock_nordpool_entry.entry_id}_{AREA}",
+        minor_version=2,
     )

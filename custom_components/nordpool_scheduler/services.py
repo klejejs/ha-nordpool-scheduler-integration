@@ -14,14 +14,21 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import selector
 from homeassistant.util import dt as dt_util
 
+from .auto import AutoWindow
 from .const import (
+    ATTR_CHEAP_PRICE,
     ATTR_CONFIG_ENTRY,
+    ATTR_END,
+    ATTR_HOURS,
+    ATTR_MAX_PRICE,
     ATTR_SLOTS,
     ATTR_START,
     ATTR_STATE,
+    ATTR_WINDOWS,
     DOMAIN,
     MAX_SLOT_LOOKAHEAD_DAYS,
     SERVICE_CLEAR_SCHEDULE,
+    SERVICE_SET_AUTO_WINDOWS,
     SERVICE_SET_SLOTS,
     SLOT_MINUTES,
     SLOT_STATE_DEFAULT,
@@ -59,6 +66,33 @@ SERVICE_CLEAR_SCHEDULE_SCHEMA = vol.Schema(
     {
         vol.Required(ATTR_CONFIG_ENTRY): selector.ConfigEntrySelector(
             {"integration": DOMAIN}
+        ),
+    }
+)
+
+
+_PRICE = vol.All(vol.Coerce(float), vol.Range(min=0, max=1000))
+
+SERVICE_SET_AUTO_WINDOWS_SCHEMA = vol.Schema(
+    {
+        vol.Required(ATTR_CONFIG_ENTRY): selector.ConfigEntrySelector(
+            {"integration": DOMAIN}
+        ),
+        vol.Optional(ATTR_WINDOWS, default=list): vol.All(
+            cv.ensure_list,
+            [
+                vol.Schema(
+                    {
+                        vol.Required(ATTR_START): cv.time,
+                        vol.Required(ATTR_END): cv.time,
+                        vol.Required(ATTR_HOURS): vol.All(
+                            vol.Coerce(float), vol.Range(min=0, max=24)
+                        ),
+                        vol.Optional(ATTR_MAX_PRICE, default=0): _PRICE,
+                        vol.Optional(ATTR_CHEAP_PRICE, default=0): _PRICE,
+                    }
+                )
+            ],
         ),
     }
 )
@@ -135,8 +169,32 @@ def async_setup_services(hass: HomeAssistant) -> None:
         runtime.schedule.clear()
         await async_apply_now(hass, entry)
 
+    async def handle_set_auto_windows(call: ServiceCall) -> None:
+        entry = _scheduler_entry(hass, call.data[ATTR_CONFIG_ENTRY])
+        runtime = entry.runtime_data
+        runtime.windows.set_windows(
+            [
+                AutoWindow(
+                    start=window[ATTR_START],
+                    end=window[ATTR_END],
+                    hours=window[ATTR_HOURS],
+                    max_price=window[ATTR_MAX_PRICE],
+                    cheap_price=window[ATTR_CHEAP_PRICE],
+                )
+                for window in call.data[ATTR_WINDOWS]
+            ]
+        )
+        runtime.refresh_auto(hass)
+        await async_apply_now(hass, entry)
+
     hass.services.async_register(
         DOMAIN, SERVICE_SET_SLOTS, handle_set_slots, schema=SERVICE_SET_SLOTS_SCHEMA
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SET_AUTO_WINDOWS,
+        handle_set_auto_windows,
+        schema=SERVICE_SET_AUTO_WINDOWS_SCHEMA,
     )
     hass.services.async_register(
         DOMAIN,
