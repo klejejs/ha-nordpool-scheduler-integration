@@ -22,7 +22,7 @@ from homeassistant.helpers.event import (
 )
 from homeassistant.util import dt as dt_util
 
-from .auto import select_auto_slots
+from .auto import blocks_slot, select_auto_slots
 from .const import (
     CONF_DEFAULT_STATE,
     CONF_STOP_ENTITY,
@@ -45,7 +45,7 @@ from .websocket_api import async_setup_websocket_api
 from .windows import AutoWindowStore, async_migrate_windows
 
 if TYPE_CHECKING:
-    from datetime import datetime
+    from datetime import datetime, tzinfo
 
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.helpers.typing import ConfigType
@@ -80,6 +80,7 @@ class NordpoolSchedulerRuntimeData:
     runs_limited: bool = False
     max_runs: float = DEFAULT_MAX_RUNS
     auto_slots: dict[datetime, bool] = field(default_factory=dict, repr=False)
+    time_zone: tzinfo = field(default=dt_util.DEFAULT_TIME_ZONE, repr=False)
     last_desired_state: bool | None = None
     restored_desired_state: bool | None = None
     unsub_tick: CALLBACK_TYPE | None = field(default=None, repr=False)
@@ -97,6 +98,7 @@ class NordpoolSchedulerRuntimeData:
     def refresh_auto(self, hass: HomeAssistant) -> None:
         """Recompute auto mode's picks from the current prices and settings."""
         tz = dt_util.get_time_zone(hass.config.time_zone) or dt_util.DEFAULT_TIME_ZONE
+        self.time_zone = tz
         self.auto_slots = select_auto_slots(
             self.coordinator.data or {},
             tz,
@@ -108,7 +110,12 @@ class NordpoolSchedulerRuntimeData:
         """Return auto mode's choice for a slot, or None if it makes none."""
         if not self.auto_enabled:
             return None
-        return self.auto_slots.get(slot_start)
+        pick = self.auto_slots.get(slot_start)
+        if pick is None and blocks_slot(
+            slot_start, self.time_zone, self.windows.windows
+        ):
+            return False
+        return pick
 
     def base_state(self, slot_start: datetime) -> tuple[bool, str]:
         """Return what auto mode or the default wants, ignoring overrides."""

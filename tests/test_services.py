@@ -264,6 +264,7 @@ async def test_set_auto_windows_replaces_and_clears(
         {"start": "6 am", "end": "08:00", "hours": 1},
         {"start": "06:00", "hours": 1},
         {"start": "06:00", "end": "08:00", "hours": 1, "max_price": -1},
+        {"start": "06:00", "end": "08:00", "hours": 0.3},
     ],
 )
 async def test_set_auto_windows_rejects_bad_windows(
@@ -305,3 +306,23 @@ async def test_set_auto_windows_rejects_prices_entry(
             },
             blocking=True,
         )
+
+
+async def test_set_auto_windows_requires_the_list(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """Leaving the windows out is refused rather than clearing them."""
+    await _setup(hass, mock_config_entry, nordpool_prices)
+
+    with pytest.raises(vol.Invalid):
+        await hass.services.async_call(
+            DOMAIN,
+            "set_auto_windows",
+            {"config_entry": mock_config_entry.entry_id},
+            blocking=True,
+        )
+    assert len(mock_config_entry.runtime_data.windows.windows) == 1

@@ -93,7 +93,7 @@ What stays global and what each window sets:
 |---|---|
 | **Auto mode**, on or off | **From** and **To**, the time of day it covers |
 | **Auto run limit**, on or off | **Run for**, the hours it runs in its cheapest slots |
-| **Auto max runs per day** | **Max price**: its slots above this are skipped. 0 turns it off. |
+| **Auto max runs per day** | **Max price**: the slots it picks for its hours are never above this. 0 turns it off. |
 | | **Cheap price**: its slots at or below this run too. 0 turns it off. |
 
 A new scheduler starts with one window, 00:00 to 23:59 for 2 hours, with no price limits: the target runs in the two cheapest hours of each day.
@@ -103,7 +103,7 @@ A new scheduler starts with one window, 00:00 to 23:59 for 2 hours, with no pric
 - **From and To.** A To before From wraps past midnight, so 20:00 to 00:00 is 20:00 to midnight. From equal to To, or 00:00 to 23:59, is the whole day. Each local day, midnight to midnight in Home Assistant's time zone, is picked on its own, so a window that wraps past midnight is two stretches of the same day.
 - **Run for.** Each window runs its hours in its cheapest slots, a tie going to the earlier slot. The day runs for the windows' hours added together.
 - **Narrowest first.** Windows are picked from the shortest From to To up, so a morning window takes its slots before a whole-day window fills in around it.
-- **Max price.** A window never runs a slot above its max price, so on an expensive day it can run for less than its hours, or not at all.
+- **Max price.** A window never picks a slot above its max price for its hours, so on an expensive day it can run for less than its hours, or not at all. With **Auto run limit** off, a cheap price set above the max price still runs its cheap slots; with the run limit on, cheap slots stay at or below the max price too.
 - **Cheap price.** Every slot in a window at or below its cheap price runs too, even past the hours. A window that runs for 0 hours picks nothing, but its cheap price still applies, so a whole-day window with 0 hours and a cheap price runs every cheap slot of the day.
 - **Outside every window** the target is off.
 - Windows can overlap. Each picks on its own, and a slot runs if any window picks it.
@@ -152,7 +152,7 @@ Turning auto mode on or off, changing the run limit or changing the windows take
 
 ### Coming from an older version
 
-Auto mode used to have one **Auto hours per day**, **Auto max price** and **Auto cheap price** for the whole day, and an **Auto hour range** with **Auto cheap price all day**. Updating turns them into time windows that pick exactly the same slots, and removes those seven entities:
+Auto mode used to have a single **Auto hours per day**, **Auto max price** and **Auto cheap price** for the whole day, and an **Auto hour range** with **Auto cheap price all day**. Updating turns them into time windows that pick exactly the same slots, and removes those seven entities:
 
 - Without an hour range, they become one window 00:00 to 23:59 with the same hours and prices.
 - With an hour range, they become one window over the range. With cheap price all day on as well, a second window 00:00 to 23:59 for 0 hours, with the same prices, keeps the cheap slots outside the range running.

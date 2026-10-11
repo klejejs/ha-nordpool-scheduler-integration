@@ -118,6 +118,17 @@ def select_auto_slots(
     return decisions
 
 
+def blocks_slot(slot: datetime, tz: tzinfo, windows: Sequence[AutoWindow]) -> bool:
+    """Return whether a slot is off before its day has prices.
+
+    That is a slot outside every window with hours to run.
+    """
+    at = dt_util.as_utc(slot).astimezone(tz).time()
+    return not any(
+        window.slot_count > 0 and _in_window(at, window) for window in windows
+    )
+
+
 def _within(price: float, max_price: float) -> bool:
     return max_price == 0 or price <= max_price
 

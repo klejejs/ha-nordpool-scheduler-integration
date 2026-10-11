@@ -71,6 +71,13 @@ SERVICE_CLEAR_SCHEDULE_SCHEMA = vol.Schema(
 )
 
 
+def _quarter_hours(hours: float) -> float:
+    if (hours * 60) % SLOT_MINUTES:
+        msg = f"hours must be a multiple of {SLOT_MINUTES} minutes"
+        raise vol.Invalid(msg)
+    return hours
+
+
 _PRICE = vol.All(vol.Coerce(float), vol.Range(min=0, max=1000))
 
 SERVICE_SET_AUTO_WINDOWS_SCHEMA = vol.Schema(
@@ -78,7 +85,7 @@ SERVICE_SET_AUTO_WINDOWS_SCHEMA = vol.Schema(
         vol.Required(ATTR_CONFIG_ENTRY): selector.ConfigEntrySelector(
             {"integration": DOMAIN}
         ),
-        vol.Optional(ATTR_WINDOWS, default=list): vol.All(
+        vol.Required(ATTR_WINDOWS): vol.All(
             cv.ensure_list,
             [
                 vol.Schema(
@@ -86,7 +93,9 @@ SERVICE_SET_AUTO_WINDOWS_SCHEMA = vol.Schema(
                         vol.Required(ATTR_START): cv.time,
                         vol.Required(ATTR_END): cv.time,
                         vol.Required(ATTR_HOURS): vol.All(
-                            vol.Coerce(float), vol.Range(min=0, max=24)
+                            vol.Coerce(float),
+                            vol.Range(min=0, max=24),
+                            _quarter_hours,
                         ),
                         vol.Optional(ATTR_MAX_PRICE, default=0): _PRICE,
                         vol.Optional(ATTR_CHEAP_PRICE, default=0): _PRICE,

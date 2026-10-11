@@ -376,3 +376,30 @@ async def test_snapshot_carries_auto_mode(
     assert current["override"] == "off"
     assert current["effective"] == "off"
     assert sum(1 for s in snapshot["slots"] if s["auto"]) >= 8
+
+
+async def test_unpriced_day_is_off_outside_the_windows(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """A day with no prices yet follows the default only inside a window."""
+    await _setup_with_cheap_current_hour(hass, mock_config_entry, nordpool_prices)
+    await _switch(hass, "turn_on")
+    await _set_windows(
+        hass, mock_config_entry, [{"start": "06:00", "end": "08:00", "hours": 1}]
+    )
+    runtime = mock_config_entry.runtime_data
+    tomorrow = datetime.now(OSLO_TZ).date() + timedelta(days=1)
+
+    def slot(hour: int) -> datetime:
+        local = datetime.combine(tomorrow, time(hour), tzinfo=OSLO_TZ)
+        return local.astimezone(UTC)
+
+    assert runtime.auto_pick(slot(7)) is None
+    assert runtime.auto_pick(slot(12)) is False
+
+    await _set_windows(hass, mock_config_entry, [])
+    assert runtime.auto_pick(slot(7)) is False
