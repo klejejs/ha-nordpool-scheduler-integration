@@ -217,6 +217,10 @@
         "cheap_price": {
           "name": "Cheap price",
           "description": "Also run every slot at or below this price. 0 turns it off."
+        },
+        "min_run_hours": {
+          "name": "Min run",
+          "description": "Once it turns on, each run lasts at least this long, and Run for is never less. 0 turns it off."
         }
       }
     }

@@ -265,6 +265,8 @@ async def test_set_auto_windows_replaces_and_clears(
         {"start": "06:00", "hours": 1},
         {"start": "06:00", "end": "08:00", "hours": 1, "max_price": -1},
         {"start": "06:00", "end": "08:00", "hours": 0.3},
+        {"start": "06:00", "end": "08:00", "hours": 1, "min_run_hours": 0.3},
+        {"start": "06:00", "end": "08:00", "hours": 1, "min_run_hours": 25},
     ],
 )
 async def test_set_auto_windows_rejects_bad_windows(
@@ -350,3 +352,32 @@ async def test_set_auto_windows_rounds_seconds_up(
     assert mock_config_entry.runtime_data.windows.windows == (
         AutoWindow(start=time(6, 1), end=time(23, 59), hours=1),
     )
+
+
+async def test_set_auto_windows_takes_a_min_run(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """A min run is kept, and raises the hours of a window that runs for less."""
+    await _setup(hass, mock_config_entry, nordpool_prices)
+
+    await hass.services.async_call(
+        DOMAIN,
+        "set_auto_windows",
+        {
+            "config_entry": mock_config_entry.entry_id,
+            "windows": [
+                {"start": "00:00", "end": "23:59", "hours": 0.5, "min_run_hours": 1},
+                {"start": "06:00", "end": "08:00", "hours": 0.25},
+            ],
+        },
+        blocking=True,
+    )
+    assert mock_config_entry.runtime_data.windows.windows == (
+        AutoWindow(start=time(0, 0), end=time(23, 59), hours=0.5, min_run_hours=1),
+        AutoWindow(start=time(6, 0), end=time(8, 0), hours=0.25),
+    )
+    assert mock_config_entry.runtime_data.run_hours == 1.25

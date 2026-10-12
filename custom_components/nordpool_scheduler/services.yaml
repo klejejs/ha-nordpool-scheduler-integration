@@ -28,7 +28,7 @@ set_auto_windows:
           integration: nordpool_scheduler
     windows:
       required: true
-      example: '[{"start": "06:00", "end": "08:00", "hours": 0.75, "max_price": 25, "cheap_price": 0}]'
+      example: '[{"start": "06:00", "end": "08:00", "hours": 0.75, "max_price": 25, "cheap_price": 0, "min_run_hours": 0}]'
       selector:
         object:
           multiple: true
@@ -68,4 +68,12 @@ set_auto_windows:
                   max: 1000
                   step: 0.01
                   unit_of_measurement: c/kWh
+                  mode: box
+            min_run_hours:
+              selector:
+                number:
+                  min: 0
+                  max: 24
+                  step: 0.25
+                  unit_of_measurement: h
                   mode: box

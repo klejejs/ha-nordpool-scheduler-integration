@@ -93,7 +93,7 @@ class NordpoolSchedulerRuntimeData:
     @property
     def run_hours(self) -> float:
         """Return how long the time windows run for in total each day."""
-        return sum(window.hours for window in self.windows.windows)
+        return sum(window.run_hours for window in self.windows.windows)
 
     def refresh_auto(self, hass: HomeAssistant) -> None:
         """Recompute auto mode's picks from the current prices and settings."""

@@ -17,6 +17,7 @@ from .const import (
     ATTR_END,
     ATTR_HOURS,
     ATTR_MAX_PRICE,
+    ATTR_MIN_RUN_HOURS,
     ATTR_START,
     DEFAULT_RUN_HOURS,
     DEFAULT_WINDOW_END,
@@ -71,6 +72,7 @@ def window_as_dict(window: AutoWindow) -> dict[str, Any]:
         ATTR_HOURS: window.hours,
         ATTR_MAX_PRICE: window.max_price,
         ATTR_CHEAP_PRICE: window.cheap_price,
+        ATTR_MIN_RUN_HOURS: window.min_run_hours,
     }
 
 
@@ -82,6 +84,7 @@ def _window_from_dict(data: dict[str, Any]) -> AutoWindow | None:
             hours=float(data[ATTR_HOURS]),
             max_price=float(data.get(ATTR_MAX_PRICE, 0)),
             cheap_price=float(data.get(ATTR_CHEAP_PRICE, 0)),
+            min_run_hours=float(data.get(ATTR_MIN_RUN_HOURS, 0)),
         )
     except KeyError, TypeError, ValueError:
         return None
