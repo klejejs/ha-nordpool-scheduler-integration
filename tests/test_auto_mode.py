@@ -168,6 +168,71 @@ async def test_override_beats_auto(
     assert hass.states.get(SCHEDULED_ON).attributes["source"] == "override"
 
 
+async def _set_slots(
+    hass: HomeAssistant, entry: MockConfigEntry, slots: dict[datetime, str]
+) -> None:
+    await hass.services.async_call(
+        "nordpool_scheduler",
+        "set_slots",
+        {
+            "config_entry": entry.entry_id,
+            "slots": [
+                {"start": start.isoformat(), "state": state}
+                for start, state in slots.items()
+            ],
+        },
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+
+async def test_override_dropped_once_auto_agrees(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """An override goes once auto mode or the default wants the same thing."""
+    await _setup_with_cheap_current_hour(hass, mock_config_entry, nordpool_prices)
+    current = slot_start_for(dt_util.utcnow())
+    later = current + timedelta(hours=3)
+    await _set_slots(hass, mock_config_entry, {current: "on", later: "on"})
+    schedule = mock_config_entry.runtime_data.schedule
+    assert schedule.as_dict() == {current: True, later: True}
+
+    # Auto picks the cheap current hour, so its "on" override does nothing.
+    await _switch(hass, "turn_on")
+    assert schedule.as_dict() == {later: True}
+    assert hass.states.get(SCHEDULED_ON).attributes["source"] == "auto"
+
+    # Turning auto off again leaves the slot to the default, not the old override.
+    await _switch(hass, "turn_off")
+    assert hass.states.get(mock_target).state == "off"
+    assert schedule.as_dict() == {later: True}
+
+
+async def test_reload_keeps_override_against_auto(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """An override against auto's pick survives a reload that restores auto mode."""
+    await _setup_with_cheap_current_hour(hass, mock_config_entry, nordpool_prices)
+    await _switch(hass, "turn_on")
+    current = slot_start_for(dt_util.utcnow())
+    await _set_slots(hass, mock_config_entry, {current: "off"})
+
+    assert await hass.config_entries.async_reload(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    entry = hass.config_entries.async_get_entry(mock_config_entry.entry_id)
+    assert entry.runtime_data.schedule.as_dict() == {current: False}
+    assert hass.states.get(mock_target).state == "off"
+
+
 async def test_windows_re_pick_and_apply(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
