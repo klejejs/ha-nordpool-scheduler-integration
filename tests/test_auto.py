@@ -564,3 +564,15 @@ def test_min_run_stops_at_midnight() -> None:
     row = _row("22:00", "06:00", 0.5, min_run_hours=1)
     decisions = _pick(_day_prices(DAY, raw), row)
     assert _on_indexes(decisions, DAY) == [0, 1, 2, 3]
+
+
+def test_cheap_slot_keeps_the_shortest_min_run_it_is_cheap_in() -> None:
+    """A cheap slot runs when any window it is cheap in allows its stretch."""
+    raw = [50.0] * 96
+    raw[24:27] = [2.0] * 3  # 06:00-06:45
+    rows = (
+        _row("06:00", "07:00", 0, cheap_price=3, min_run_hours=1),
+        _row("06:15", "08:00", 0, cheap_price=3),
+    )
+    decisions = _pick(_day_prices(DAY, raw), *rows)
+    assert _on_indexes(decisions, DAY) == [25, 26]

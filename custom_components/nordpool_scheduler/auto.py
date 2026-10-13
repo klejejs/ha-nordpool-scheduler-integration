@@ -136,7 +136,7 @@ def select_auto_slots(
                 forced=taken,
             )
 
-        # The longest minimum run among the windows each cheap slot is cheap in.
+        # The shortest minimum run among the windows each cheap slot is cheap in.
         cheap: dict[datetime, int] = {}
         for window, cover, min_len in zip(windows, covers, min_lens, strict=True):
             if window.cheap_price <= 0:
@@ -145,18 +145,21 @@ def select_auto_slots(
                 if prices[slot] <= window.cheap_price and (
                     max_runs is None or _within(prices[slot], window.max_price)
                 ):
-                    cheap[slot] = max(cheap.get(slot, 0), min_len)
+                    cheap[slot] = min(cheap.get(slot, min_len), min_len)
         on = (
             taken | set(cheap)
             if max_runs is None
             else _grow_runs(day_slots, taken, set(cheap))
         )
-        on -= {
+        # Dropping a cheap slot can shorten the stretch its neighbours are in.
+        while short := {
             slot
             for run in _stretches(day_slots, on)
-            if run.isdisjoint(taken) and len(run) < max(cheap[slot] for slot in run)
+            if run.isdisjoint(taken)
             for slot in run
-        }
+            if cheap[slot] > len(run)
+        }:
+            on -= short
         decisions.update((slot, slot in on) for slot in day_slots)
     return decisions
 
