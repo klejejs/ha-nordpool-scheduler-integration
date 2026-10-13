@@ -62,6 +62,7 @@ ATTR_END: Final = "end"
 ATTR_HOURS: Final = "hours"
 ATTR_MAX_PRICE: Final = "max_price"
 ATTR_CHEAP_PRICE: Final = "cheap_price"
+ATTR_MIN_RUN_HOURS: Final = "min_run_hours"
 
 SLOT_STATE_ON: Final = "on"
 SLOT_STATE_OFF: Final = "off"

@@ -95,6 +95,7 @@ What stays global and what each window sets:
 | **Auto run limit**, on or off | **Run for**, the hours it runs in its cheapest slots |
 | **Auto max runs per day** | **Max price**: the slots it picks for its hours are never above this. 0 turns it off. |
 | | **Cheap price**: its slots at or below this run too. 0 turns it off. |
+| | **Min run**: once it turns the target on, it stays on at least this long. 0 turns it off. |
 
 A new scheduler starts with one window, 00:00 to 23:59 for 2 hours, with no price limits: the target runs in the two cheapest hours of each day.
 
@@ -105,6 +106,7 @@ A new scheduler starts with one window, 00:00 to 23:59 for 2 hours, with no pric
 - **Narrowest first.** Windows are picked from the shortest From to To up, so a morning window takes its slots before a whole-day window fills in around it.
 - **Max price.** A window never picks a slot above its max price for its hours, so on an expensive day it can run for less than its hours, or not at all. With **Auto run limit** off, a cheap price set above the max price still runs its cheap slots; with the run limit on, cheap slots stay at or below the max price too.
 - **Cheap price.** Every slot in a window at or below its cheap price runs too, even past the hours. A window that runs for 0 hours picks nothing, but its cheap price still applies, so a whole-day window with 0 hours and a cheap price runs every cheap slot of the day.
+- **Min run.** Every run a window starts lasts at least its min run, so a boiler never runs for a lone 15 minutes. A window that runs for less than its min run runs for the min run, and one shorter than its min run runs its whole length. Runs never span a slot above the max price, so on a patchy day the window runs fewer hours, or none. A slot that joins onto another window's run counts that run's length. Cheap slots that join onto a run always run; cheap slots on their own only run in a stretch at least the min run long. Each day is picked on its own, so a run at midnight must be long enough within its own day.
 - **Outside every window** the target is off.
 - Windows can overlap. Each picks on its own, and a slot runs if any window picks it.
 - A day is only decided once every one of its slots has a price. Until then, for example tomorrow before Nord Pool publishes, slots inside a window that runs for some time follow the default state, and every other slot is off.
@@ -119,6 +121,7 @@ With **Auto run limit** on, each window's hours run in back-to-back stretches, a
 - A window's slots that join onto a run made earlier lengthen it without counting as another run.
 - A run never spans a slot above that window's max price.
 - A slot at or below a cheap price only runs when it lengthens a run, never as a run of its own.
+- Min run applies on top: each run is also at least its window's min run long. Two runs of at least an hour can't fit 1.5 hours, so such a window makes one 1.5-hour run.
 
 Turning auto mode on or off, changing the run limit or changing the windows takes effect for the current slot at once.
 
@@ -147,6 +150,8 @@ Turning auto mode on or off, changing the run limit or changing the windows take
 1. The evening window is the narrower one, so its cheapest hour between 20:00 and midnight is picked first, as one run.
 2. The whole-day window can then make up to two more runs, so the 1.5 hours go to the cheapest slots in at most two stretches: two runs, one longer run, or added onto the evening run.
 3. Two more runs is a maximum, not a promise. To always run twice more, use two windows instead, such as 00:00 to 12:00 and 12:00 to 20:00. To keep the extra runs out of the evening, end the wide window at 20:00.
+
+**A boiler that runs at least an hour at a time.** One window 00:00 to 23:59, Run for 2 h, Min run 1 h, Auto run limit off. The target runs in the cheapest two hours that come as one 2-hour run or two runs of at least an hour each, never as scattered 15-minute slots. Set Run for to 30 min and it still runs a whole hour, in the cheapest unbroken hour of the day.
 
 **A range with cheap slots all day.** One window 17:00 to 23:00 for 2 hours, and a second window 00:00 to 23:59 for 0 hours with a cheap price of 3. The target runs the two cheapest hours between 17:00 and 23:00, and any slot of the day at 3 c/kWh or less.
 
@@ -221,7 +226,7 @@ data:
 
 ### `nordpool_scheduler.set_auto_windows`
 
-Replaces every [time window](#time-windows) auto mode runs in. `max_price` and `cheap_price` are optional and default to 0, which turns them off. An empty list leaves auto mode nothing to run.
+Replaces every [time window](#time-windows) auto mode runs in. `max_price`, `cheap_price` and `min_run_hours` are optional and default to 0, which turns them off. `min_run_hours` is in quarter hours, like `hours`. An empty list leaves auto mode nothing to run.
 
 ```yaml
 action: nordpool_scheduler.set_auto_windows
@@ -235,6 +240,7 @@ data:
     - start: "20:00"
       end: "00:00"
       hours: 1
+      min_run_hours: 1
 ```
 
 `config_entry` is the scheduler's config entry ID. Pick the scheduler from the dropdown in the action editor and switch to YAML to see it.

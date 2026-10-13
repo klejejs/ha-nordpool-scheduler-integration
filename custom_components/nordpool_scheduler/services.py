@@ -21,6 +21,7 @@ from .const import (
     ATTR_END,
     ATTR_HOURS,
     ATTR_MAX_PRICE,
+    ATTR_MIN_RUN_HOURS,
     ATTR_SLOTS,
     ATTR_START,
     ATTR_STATE,
@@ -80,6 +81,7 @@ def _quarter_hours(hours: float) -> float:
 
 
 _PRICE = vol.All(vol.Coerce(float), vol.Range(min=0, max=1000))
+_HOURS = vol.All(vol.Coerce(float), vol.Range(min=0, max=24), _quarter_hours)
 
 SERVICE_SET_AUTO_WINDOWS_SCHEMA = vol.Schema(
     {
@@ -93,13 +95,10 @@ SERVICE_SET_AUTO_WINDOWS_SCHEMA = vol.Schema(
                     {
                         vol.Required(ATTR_START): vol.All(cv.time, whole_minute),
                         vol.Required(ATTR_END): vol.All(cv.time, whole_minute),
-                        vol.Required(ATTR_HOURS): vol.All(
-                            vol.Coerce(float),
-                            vol.Range(min=0, max=24),
-                            _quarter_hours,
-                        ),
+                        vol.Required(ATTR_HOURS): _HOURS,
                         vol.Optional(ATTR_MAX_PRICE, default=0): _PRICE,
                         vol.Optional(ATTR_CHEAP_PRICE, default=0): _PRICE,
+                        vol.Optional(ATTR_MIN_RUN_HOURS, default=0): _HOURS,
                     }
                 )
             ],
@@ -190,6 +189,7 @@ def async_setup_services(hass: HomeAssistant) -> None:
                     hours=window[ATTR_HOURS],
                     max_price=window[ATTR_MAX_PRICE],
                     cheap_price=window[ATTR_CHEAP_PRICE],
+                    min_run_hours=window[ATTR_MIN_RUN_HOURS],
                 )
                 for window in call.data[ATTR_WINDOWS]
             ]

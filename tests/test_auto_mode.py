@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, time, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import State
 from homeassistant.util import dt as dt_util
@@ -12,6 +12,7 @@ from pytest_homeassistant_custom_component.common import (
 )
 
 from custom_components.nordpool_scheduler.auto import AutoWindow
+from custom_components.nordpool_scheduler.const import WINDOWS_STORAGE_KEY_PREFIX
 from custom_components.nordpool_scheduler.util import slot_start_for
 
 from .conftest import OSLO_TZ, hourly_day_prices
@@ -280,7 +281,13 @@ async def test_windows_survive_a_reload(
         mock_config_entry,
         [
             {"start": "19:00", "end": "22:00", "hours": 1, "cheap_price": 3},
-            {"start": "06:00", "end": "08:00", "hours": 0.75, "max_price": 25},
+            {
+                "start": "06:00",
+                "end": "08:00",
+                "hours": 0.75,
+                "max_price": 25,
+                "min_run_hours": 0.5,
+            },
         ],
     )
 
@@ -288,8 +295,46 @@ async def test_windows_survive_a_reload(
     await hass.async_block_till_done()
 
     assert mock_config_entry.runtime_data.windows.windows == (
-        AutoWindow(start=time(6, 0), end=time(8, 0), hours=0.75, max_price=25),
+        AutoWindow(
+            start=time(6, 0),
+            end=time(8, 0),
+            hours=0.75,
+            max_price=25,
+            min_run_hours=0.5,
+        ),
         AutoWindow(start=time(19, 0), end=time(22, 0), hours=1, cheap_price=3),
+    )
+
+
+async def test_windows_saved_without_a_min_run_load_with_none(
+    hass: HomeAssistant,
+    hass_storage: dict[str, Any],
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """Windows saved before the min run existed load with it off."""
+    hass_storage[f"{WINDOWS_STORAGE_KEY_PREFIX}.{mock_config_entry.entry_id}"] = {
+        "version": 1,
+        "minor_version": 1,
+        "key": f"{WINDOWS_STORAGE_KEY_PREFIX}.{mock_config_entry.entry_id}",
+        "data": {
+            "windows": [
+                {
+                    "start": "06:00",
+                    "end": "08:00",
+                    "hours": 1,
+                    "max_price": 0,
+                    "cheap_price": 0,
+                }
+            ]
+        },
+    }
+    await _setup_with_cheap_current_hour(hass, mock_config_entry, nordpool_prices)
+
+    assert mock_config_entry.runtime_data.windows.windows == (
+        AutoWindow(start=time(6, 0), end=time(8, 0), hours=1),
     )
 
 
@@ -360,6 +405,7 @@ async def test_snapshot_carries_auto_mode(
                 "hours": 2.0,
                 "max_price": 0.0,
                 "cheap_price": 0.0,
+                "min_run_hours": 0.0,
             }
         ],
         "runs_limited": False,
