@@ -124,6 +124,13 @@ def test_windows_hours_fit_together() -> None:
     ]
 
 
+def test_windows_hours_fit_in_pick_order() -> None:
+    """A wider window gets its hours whatever the narrower ones picked first."""
+    keys = _keys(_window("06:00", "18:00", 9), _window("12:00", "00:00", 9))
+    assert keys == ["windows_hours_overflow"]
+    assert _keys(_window("06:00", "18:00", 6), _window("12:00", "00:00", 6)) == []
+
+
 def test_run_limit_leaves_each_running_window_a_run() -> None:
     """With Limit runs on, each window that runs for some time needs a run."""
     windows = (_window("06:00", "08:00", 1), _window("18:00", "20:00", 1))

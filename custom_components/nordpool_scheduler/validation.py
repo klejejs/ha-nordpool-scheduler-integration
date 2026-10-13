@@ -163,30 +163,23 @@ def run_limit_problems(
 def _unfittable(
     windows: Sequence[AutoWindow], covers: Sequence[frozenset[int]]
 ) -> list[AutoWindow]:
-    """Return windows whose hours add up to more than the slots they cover together.
+    """Return a window that may not get its hours, and the windows that pick first.
 
-    Each window needs its hours in slots no other window took, so this
-    matches every needed slot to a covered one and, when one can't be,
-    returns the windows that compete for the slots it could have had.
+    Windows pick in the order auto mode uses, narrowest first, and an
+    earlier window may take any of its slots, so each needs its hours in
+    what earlier windows can leave of its own slots.
     """
-    needs = [i for i, window in enumerate(windows) for _ in range(_slots(window.hours))]
-    holder: dict[int, int] = {}
-
-    def place(need: int, seen: set[int]) -> bool:
-        for slot in sorted(covers[needs[need]]):
-            if slot in seen:
-                continue
-            seen.add(slot)
-            if slot not in holder or place(holder[slot], seen):
-                holder[slot] = need
-                return True
-        return False
-
-    for need in range(len(needs)):
-        seen: set[int] = set()
-        if not place(need, seen):
-            competing = {needs[need]} | {needs[holder[slot]] for slot in seen}
-            return [windows[i] for i in sorted(competing)]
+    order = sorted(
+        (i for i, window in enumerate(windows) if _slots(window.hours) > 0),
+        key=lambda i: (len(covers[i]), windows[i].start),
+    )
+    for position, i in enumerate(order):
+        earlier = [j for j in order[:position] if covers[j] & covers[i]]
+        taken = sum(
+            min(_slots(windows[j].hours), len(covers[j] & covers[i])) for j in earlier
+        )
+        if _slots(windows[i].hours) > len(covers[i]) - taken:
+            return [windows[j] for j in sorted([*earlier, i])]
     return []
 
 

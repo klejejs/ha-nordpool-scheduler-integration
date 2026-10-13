@@ -206,8 +206,8 @@ Settings that contradict each other are refused with an error rather than quietl
 - Cheap price is no higher than Max price when both are set.
 - A window runs for some time, has a cheap price, or both.
 - No two windows cover the same time. From equal to To and 00:00 to 23:59 both cover the whole day.
-- The windows' hours fit in the time they cover between them: 06:00 to 08:00 for 2 h and 06:00 to 09:00 for 2 h need 4 hours of a 3-hour stretch.
-- With **Auto run limit** on, **Auto max runs per day** is a whole number and at least the number of windows that run for some time, since each of them needs a run. This is checked when the windows change, when max runs changes, and when the limit is turned on.
+- Every window is sure of its hours. Narrower windows pick first and can take any of their slots, so a wider window's hours must fit in what they can leave it: 06:00 to 08:00 for 2 h leaves 06:00 to 09:00 only 1 hour, and 06:00 to 18:00 for 9 h can take 6 hours of 12:00 to 00:00, leaving it 6.
+- With **Auto run limit** on, **Auto max runs per day** is a whole number from 1 to 24 and at least the number of windows that run for some time, since each of them needs a run. This is checked when the windows change, when max runs changes, and when the limit is turned on.
 
 **Overrides**, through `set_slots` or the card
 

@@ -188,7 +188,7 @@
       "message": "Windows {window} and {other} cover the same time, so make them one window"
     },
     "windows_hours_overflow": {
-      "message": "Windows {windows} run for more hours than they cover between them"
+      "message": "Windows {windows} can't all be sure of their hours: narrower windows pick first and can take the time the wider ones need"
     },
     "windows_too_many_runs": {
       "message": "{count} windows run for some time, but Limit runs allows only {max_runs} runs per day and each window needs one"
