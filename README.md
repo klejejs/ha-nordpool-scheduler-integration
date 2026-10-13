@@ -192,14 +192,14 @@ The average price sensors report what the target's running time has cost per kWh
 - With **Only act when the schedule changes**, it only calls `turn_on` or `turn_off` when the wanted state differs from the previous slot's.
 - After a restart or reload, **Only act when the schedule changes** picks up where it left off: the wanted state is saved on disk, and the target is only switched if the current slot wants something different from what it wanted before. A manual toggle survives the restart. On a first install, and in **Enforce every 15 minutes**, it brings the target back in line with the current slot, switching it only if its state differs.
 - A target that is `unavailable` or `unknown` is skipped for that slot.
-- Overrides are stored on disk and survive restarts. Overrides for slots that have ended are removed.
+- Overrides are stored on disk and survive restarts. An override is removed once its slot has ended, or as soon as auto mode or the default state wants the same thing for its slot, for example after new prices, a change to auto mode's settings, or turning auto mode on or off. It doesn't come back if auto mode later changes back.
 - Prices are refreshed every hour, and again just after 13:00 CET when Nord Pool usually publishes the next day. Areas still on hourly prices have each hour's price copied to its four slots.
 
 ## Actions
 
 ### `nordpool_scheduler.set_slots`
 
-Sets one or more slots to `on`, `off` or `default`. `default` removes the override, so the slot follows auto mode or the default state again. Each `start` must fall on a 15-minute boundary and lie between the current slot and two days ahead.
+Sets one or more slots to `on`, `off` or `default`. `default` removes the override, so the slot follows auto mode or the default state again. Setting a slot to what auto mode or the default state already wants for it stores no override. Each `start` must fall on a 15-minute boundary and lie between the current slot and two days ahead.
 
 ```yaml
 action: nordpool_scheduler.set_slots

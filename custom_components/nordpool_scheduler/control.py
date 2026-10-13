@@ -92,8 +92,10 @@ async def async_apply_now(
     sync_target: bool = False,
 ) -> None:
     """Push the change to listeners and apply the current slot straight away."""
+    now = dt_util.utcnow()
+    entry.runtime_data.prune_overrides(now)
     async_dispatcher_send(hass, entry.runtime_data.update_signal)
-    await async_apply_slot(hass, entry, dt_util.utcnow(), sync_target=sync_target)
+    await async_apply_slot(hass, entry, now, sync_target=sync_target)
 
 
 async def async_apply_slot(
@@ -124,7 +126,7 @@ async def async_apply_slot(
     slot_start = slot_start_for(now)
     desired_on, source = runtime.live_state(hass, slot_start)
 
-    runtime.schedule.prune_ended(now)
+    runtime.prune_overrides(now)
 
     control_mode = settings.get(CONF_CONTROL_MODE)
     previous = runtime.last_desired_state

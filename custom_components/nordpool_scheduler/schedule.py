@@ -17,6 +17,8 @@ from .const import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from homeassistant.core import HomeAssistant
 
 SAVE_DELAY = 5
@@ -69,10 +71,14 @@ class ScheduleStore:
         self._overrides.clear()
         self._async_save()
 
-    def prune_ended(self, now: datetime) -> None:
-        """Drop overrides for slots that have already ended."""
+    def prune(self, now: datetime, base_on: Callable[[datetime], bool]) -> None:
+        """Drop overrides whose slot has ended or that ``base_on`` now agrees with."""
         cutoff = now - timedelta(minutes=SLOT_MINUTES)
-        stale = [start for start in self._overrides if start < cutoff]
+        stale = [
+            start
+            for start, state in self._overrides.items()
+            if start < cutoff or base_on(start) == state
+        ]
         for start in stale:
             del self._overrides[start]
         if stale:
