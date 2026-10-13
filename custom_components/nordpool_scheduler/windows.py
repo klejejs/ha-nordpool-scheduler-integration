@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from contextlib import suppress
 from datetime import time
 from typing import TYPE_CHECKING, Any
@@ -17,6 +18,7 @@ from .const import (
     ATTR_END,
     ATTR_HOURS,
     ATTR_MAX_PRICE,
+    ATTR_MIN_RUN_HOURS,
     ATTR_START,
     DEFAULT_RUN_HOURS,
     DEFAULT_WINDOW_END,
@@ -25,10 +27,13 @@ from .const import (
     STORAGE_VERSION,
     WINDOWS_STORAGE_KEY_PREFIX,
 )
+from .validation import window_problems
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
+
+_LOGGER = logging.getLogger(__name__)
 
 SAVE_DELAY = 5
 
@@ -71,6 +76,7 @@ def window_as_dict(window: AutoWindow) -> dict[str, Any]:
         ATTR_HOURS: window.hours,
         ATTR_MAX_PRICE: window.max_price,
         ATTR_CHEAP_PRICE: window.cheap_price,
+        ATTR_MIN_RUN_HOURS: window.min_run_hours,
     }
 
 
@@ -82,6 +88,7 @@ def _window_from_dict(data: dict[str, Any]) -> AutoWindow | None:
             hours=float(data[ATTR_HOURS]),
             max_price=float(data.get(ATTR_MAX_PRICE, 0)),
             cheap_price=float(data.get(ATTR_CHEAP_PRICE, 0)),
+            min_run_hours=float(data.get(ATTR_MIN_RUN_HOURS, 0)),
         )
     except KeyError, TypeError, ValueError:
         return None
@@ -95,6 +102,7 @@ class AutoWindowStore:
         self._store: Store[dict[str, Any]] = Store(
             hass, STORAGE_VERSION, f"{WINDOWS_STORAGE_KEY_PREFIX}.{entry_id}"
         )
+        self._entry_id = entry_id
         self._windows: tuple[AutoWindow, ...] = DEFAULT_WINDOWS
 
     @property
@@ -109,6 +117,14 @@ class AutoWindowStore:
             return
         windows = (_window_from_dict(data) for data in stored.get("windows", []))
         self._windows = _sorted(window for window in windows if window is not None)
+        if problems := window_problems(self._windows, runs_limited=False, max_runs=0):
+            _LOGGER.warning(
+                "The auto mode windows of entry %s break %s, so the next change to "
+                "them has to fix that: %s",
+                self._entry_id,
+                "a rule" if len(problems) == 1 else "rules",
+                "; ".join(f"{key} {values}" for key, values in problems),
+            )
 
     def set_windows(self, windows: list[AutoWindow]) -> None:
         """Replace every window."""

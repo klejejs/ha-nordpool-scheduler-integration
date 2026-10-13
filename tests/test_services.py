@@ -197,6 +197,53 @@ async def test_set_slots_rejects_bad_state(
         )
 
 
+async def test_set_slots_rejects_an_empty_list(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """A call has to set at least one slot."""
+    await _setup(hass, mock_config_entry, nordpool_prices)
+
+    with pytest.raises(vol.Invalid):
+        await hass.services.async_call(
+            DOMAIN,
+            "set_slots",
+            {"config_entry": mock_config_entry.entry_id, "slots": []},
+            blocking=True,
+        )
+
+
+async def test_set_slots_rejects_a_repeated_start(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """The same slot twice in one call is refused, and nothing is set."""
+    await _setup(hass, mock_config_entry, nordpool_prices)
+    start = slot_start_for(datetime.now(OSLO_TZ)) + timedelta(minutes=15)
+
+    with pytest.raises(ServiceValidationError) as err:
+        await hass.services.async_call(
+            DOMAIN,
+            "set_slots",
+            {
+                "config_entry": mock_config_entry.entry_id,
+                "slots": [
+                    {"start": start.isoformat(), "state": "on"},
+                    {"start": start.isoformat(), "state": "off"},
+                ],
+            },
+            blocking=True,
+        )
+    assert err.value.translation_key == "slot_duplicate"
+    assert mock_config_entry.runtime_data.schedule.get(start) is None
+
+
 async def test_set_slots_rejects_prices_entry(
     hass: HomeAssistant,
     mock_prices_entry: MockConfigEntry,
@@ -219,14 +266,14 @@ async def test_set_slots_rejects_prices_entry(
         )
 
 
-async def test_set_auto_windows_replaces_and_clears(
+async def test_set_auto_windows_replaces(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
     mock_nordpool_service: None,
     mock_target: str,
     nordpool_prices: dict[date, list],
 ) -> None:
-    """The windows are replaced as a whole, sorted by start, and can be emptied."""
+    """The windows are replaced as a whole, sorted by start."""
     await _setup(hass, mock_config_entry, nordpool_prices)
 
     await hass.services.async_call(
@@ -247,13 +294,25 @@ async def test_set_auto_windows_replaces_and_clears(
     )
     assert mock_config_entry.runtime_data.run_hours == 1.75
 
-    await hass.services.async_call(
-        DOMAIN,
-        "set_auto_windows",
-        {"config_entry": mock_config_entry.entry_id, "windows": []},
-        blocking=True,
-    )
-    assert mock_config_entry.runtime_data.windows.windows == ()
+
+async def test_set_auto_windows_rejects_an_empty_list(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """Auto mode's switch stops it, so the windows can't be emptied."""
+    await _setup(hass, mock_config_entry, nordpool_prices)
+
+    with pytest.raises(vol.Invalid):
+        await hass.services.async_call(
+            DOMAIN,
+            "set_auto_windows",
+            {"config_entry": mock_config_entry.entry_id, "windows": []},
+            blocking=True,
+        )
+    assert len(mock_config_entry.runtime_data.windows.windows) == 1
 
 
 @pytest.mark.parametrize(
@@ -265,6 +324,8 @@ async def test_set_auto_windows_replaces_and_clears(
         {"start": "06:00", "hours": 1},
         {"start": "06:00", "end": "08:00", "hours": 1, "max_price": -1},
         {"start": "06:00", "end": "08:00", "hours": 0.3},
+        {"start": "06:00", "end": "08:00", "hours": 1, "min_run_hours": 0.3},
+        {"start": "06:00", "end": "08:00", "hours": 1, "min_run_hours": 25},
     ],
 )
 async def test_set_auto_windows_rejects_bad_windows(
@@ -328,14 +389,100 @@ async def test_set_auto_windows_requires_the_list(
     assert len(mock_config_entry.runtime_data.windows.windows) == 1
 
 
-async def test_set_auto_windows_rounds_seconds_up(
+@pytest.mark.parametrize(
+    ("windows", "key"),
+    [
+        (
+            [{"start": "06:00:30", "end": "08:00", "hours": 1}],
+            "window_time_not_aligned",
+        ),
+        ([{"start": "06:05", "end": "08:00", "hours": 1}], "window_time_not_aligned"),
+        ([{"start": "06:00", "end": "08:00", "hours": 3}], "window_hours_too_long"),
+        (
+            [{"start": "06:00", "end": "08:00", "hours": 0.5, "min_run_hours": 1}],
+            "window_min_run_above_hours",
+        ),
+        (
+            [{"start": "06:00", "end": "08:00", "hours": 0, "cheap_price": 0}],
+            "window_does_nothing",
+        ),
+        (
+            [
+                {"start": "06:00", "end": "08:00", "hours": 1},
+                {"start": "06:00", "end": "08:00", "hours": 0.5},
+            ],
+            "windows_duplicate",
+        ),
+    ],
+)
+async def test_set_auto_windows_rejects_invalid_combinations(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+    windows: list[dict],
+    key: str,
+) -> None:
+    """Windows that break a rule are refused, and the old ones kept."""
+    await _setup(hass, mock_config_entry, nordpool_prices)
+    before = mock_config_entry.runtime_data.windows.windows
+
+    with pytest.raises(ServiceValidationError) as err:
+        await hass.services.async_call(
+            DOMAIN,
+            "set_auto_windows",
+            {"config_entry": mock_config_entry.entry_id, "windows": windows},
+            blocking=True,
+        )
+    assert err.value.translation_key == key
+    assert mock_config_entry.runtime_data.windows.windows == before
+
+
+async def test_set_auto_windows_checks_the_run_limit(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
     mock_nordpool_service: None,
     mock_target: str,
     nordpool_prices: dict[date, list],
 ) -> None:
-    """A bound with seconds is kept as the next minute, which picks the same slots."""
+    """With Limit runs on, there can't be more running windows than runs per day."""
+    await _setup(hass, mock_config_entry, nordpool_prices)
+    mock_config_entry.runtime_data.runs_limited = True
+    mock_config_entry.runtime_data.max_runs = 1
+    windows = [
+        {"start": "06:00", "end": "08:00", "hours": 1},
+        {"start": "18:00", "end": "20:00", "hours": 1},
+    ]
+
+    with pytest.raises(ServiceValidationError) as err:
+        await hass.services.async_call(
+            DOMAIN,
+            "set_auto_windows",
+            {"config_entry": mock_config_entry.entry_id, "windows": windows},
+            blocking=True,
+        )
+    assert err.value.translation_key == "windows_too_many_runs"
+
+    # A window that only runs cheap slots needs no run of its own.
+    windows[1] = {**windows[1], "hours": 0, "cheap_price": 1}
+    await hass.services.async_call(
+        DOMAIN,
+        "set_auto_windows",
+        {"config_entry": mock_config_entry.entry_id, "windows": windows},
+        blocking=True,
+    )
+    assert len(mock_config_entry.runtime_data.windows.windows) == 2
+
+
+async def test_set_auto_windows_takes_a_min_run(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """A min run is kept, and counts towards the hours run."""
     await _setup(hass, mock_config_entry, nordpool_prices)
 
     await hass.services.async_call(
@@ -343,10 +490,15 @@ async def test_set_auto_windows_rounds_seconds_up(
         "set_auto_windows",
         {
             "config_entry": mock_config_entry.entry_id,
-            "windows": [{"start": "06:00:30", "end": "23:59:59", "hours": 1}],
+            "windows": [
+                {"start": "00:00", "end": "23:59", "hours": 1, "min_run_hours": 1},
+                {"start": "06:00", "end": "08:00", "hours": 0.25},
+            ],
         },
         blocking=True,
     )
     assert mock_config_entry.runtime_data.windows.windows == (
-        AutoWindow(start=time(6, 1), end=time(23, 59), hours=1),
+        AutoWindow(start=time(0, 0), end=time(23, 59), hours=1, min_run_hours=1),
+        AutoWindow(start=time(6, 0), end=time(8, 0), hours=0.25),
     )
+    assert mock_config_entry.runtime_data.run_hours == 1.25

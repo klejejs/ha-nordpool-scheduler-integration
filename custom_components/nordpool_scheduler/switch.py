@@ -11,6 +11,7 @@ from homeassistant.helpers.restore_state import RestoreEntity
 
 from .control import async_apply_now
 from .entity import build_device_info
+from .validation import raise_first, run_limit_problems
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -134,3 +135,13 @@ class NordpoolSchedulerRunsLimitSwitch(NordpoolSchedulerAutoSettingSwitch):
 
     _key = "runs_limited"
     _runtime_attr = "runs_limited"
+
+    async def async_turn_on(self, **kwargs: Any) -> None:
+        """Limit runs, once the windows fit in the runs per day."""
+        runtime = self._entry.runtime_data
+        raise_first(
+            run_limit_problems(
+                runtime.windows.windows, runs_limited=True, max_runs=runtime.max_runs
+            )
+        )
+        await super().async_turn_on(**kwargs)

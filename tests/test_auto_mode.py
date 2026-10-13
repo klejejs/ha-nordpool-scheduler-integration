@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, time, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+import pytest
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import State
+from homeassistant.exceptions import ServiceValidationError
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
     mock_restore_cache_with_extra_data,
 )
 
 from custom_components.nordpool_scheduler.auto import AutoWindow
+from custom_components.nordpool_scheduler.const import WINDOWS_STORAGE_KEY_PREFIX
 from custom_components.nordpool_scheduler.util import slot_start_for
 
 from .conftest import OSLO_TZ, hourly_day_prices
@@ -68,6 +72,13 @@ async def _switch(
 ) -> None:
     await hass.services.async_call(
         "switch", service, {"entity_id": entity_id}, blocking=True
+    )
+    await hass.async_block_till_done()
+
+
+async def _set_number(hass: HomeAssistant, entity_id: str, value: float) -> None:
+    await hass.services.async_call(
+        "number", "set_value", {"entity_id": entity_id, "value": value}, blocking=True
     )
     await hass.async_block_till_done()
 
@@ -168,6 +179,133 @@ async def test_override_beats_auto(
     assert hass.states.get(SCHEDULED_ON).attributes["source"] == "override"
 
 
+async def _set_slots(
+    hass: HomeAssistant, entry: MockConfigEntry, slots: dict[datetime, str]
+) -> None:
+    await hass.services.async_call(
+        "nordpool_scheduler",
+        "set_slots",
+        {
+            "config_entry": entry.entry_id,
+            "slots": [
+                {"start": start.isoformat(), "state": state}
+                for start, state in slots.items()
+            ],
+        },
+        blocking=True,
+    )
+    await hass.async_block_till_done()
+
+
+async def test_override_dropped_once_auto_agrees(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """An override goes once auto mode or the default wants the same thing."""
+    await _setup_with_cheap_current_hour(hass, mock_config_entry, nordpool_prices)
+    current = slot_start_for(dt_util.utcnow())
+    later = current + timedelta(hours=3)
+    await _set_slots(hass, mock_config_entry, {current: "on", later: "on"})
+    schedule = mock_config_entry.runtime_data.schedule
+    assert schedule.as_dict() == {current: True, later: True}
+
+    # Auto picks the cheap current hour, so its "on" override does nothing.
+    await _switch(hass, "turn_on")
+    assert schedule.as_dict() == {later: True}
+    assert hass.states.get(SCHEDULED_ON).attributes["source"] == "auto"
+
+    # Turning auto off again leaves the slot to the default, not the old override.
+    await _switch(hass, "turn_off")
+    assert hass.states.get(mock_target).state == "off"
+    assert schedule.as_dict() == {later: True}
+
+
+def _expensive_prices(day: date, cheap_slot: datetime | None = None) -> list:
+    """Price a whole day expensive, except ``cheap_slot`` if it falls on it."""
+    midnight = datetime.combine(day, datetime.min.time(), tzinfo=OSLO_TZ)
+    next_midnight = datetime.combine(
+        day + timedelta(days=1), datetime.min.time(), tzinfo=OSLO_TZ
+    )
+    hours = (next_midnight - midnight.astimezone(UTC)) // timedelta(hours=1)
+    entries = hourly_day_prices(day, lambda _h: EXPENSIVE, hours=hours)
+    for entry in entries:
+        if datetime.fromisoformat(entry["start"]) == cheap_slot:
+            entry["price"] = CHEAP
+    return entries
+
+
+async def test_new_prices_drop_overrides_auto_now_agrees_with(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """New prices drop an override auto now agrees with, once setup has finished."""
+    await hass.config.async_set_time_zone("Europe/Oslo")
+    current = slot_start_for(dt_util.utcnow())
+    following = current + timedelta(minutes=15)
+    today = current.astimezone(OSLO_TZ).date()
+    days = (today - timedelta(days=1), today, today + timedelta(days=1))
+    for day in days:
+        nordpool_prices[day] = _expensive_prices(day)
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    await _switch(hass, "turn_on")
+    # Run every slot at or below 2 c/kWh, and nothing else.
+    await _set_windows(
+        hass,
+        mock_config_entry,
+        [{"start": "00:00", "end": "23:59", "hours": 0, "cheap_price": 2.0}],
+    )
+    await _set_slots(hass, mock_config_entry, {current: "on", following: "on"})
+    runtime = mock_config_entry.runtime_data
+    assert runtime.schedule.as_dict() == {current: True, following: True}
+
+    # The current slot turns cheap, so auto now runs it; the next stays off.
+    for day in days:
+        nordpool_prices[day] = _expensive_prices(day, cheap_slot=current)
+
+    # Mid-setup the auto settings may not be restored yet, so nothing is dropped.
+    mock_config_entry.mock_state(hass, ConfigEntryState.SETUP_IN_PROGRESS)
+    await runtime.coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert runtime.auto_pick(current) is True
+    assert runtime.schedule.as_dict() == {current: True, following: True}
+
+    mock_config_entry.mock_state(hass, ConfigEntryState.LOADED)
+    runtime.coordinator.async_update_listeners()
+    await hass.async_block_till_done()
+    assert runtime.schedule.as_dict() == {following: True}
+    assert hass.states.get(SCHEDULED_ON).attributes["source"] == "auto"
+
+
+async def test_reload_keeps_override_against_auto(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """An override against auto's pick survives a reload that restores auto mode."""
+    await _setup_with_cheap_current_hour(hass, mock_config_entry, nordpool_prices)
+    await _switch(hass, "turn_on")
+    current = slot_start_for(dt_util.utcnow())
+    await _set_slots(hass, mock_config_entry, {current: "off"})
+
+    assert await hass.config_entries.async_reload(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    entry = hass.config_entries.async_get_entry(mock_config_entry.entry_id)
+    assert entry.runtime_data.schedule.as_dict() == {current: False}
+    assert hass.states.get(mock_target).state == "off"
+
+
 async def test_windows_re_pick_and_apply(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
@@ -187,15 +325,15 @@ async def test_windows_re_pick_and_apply(
     )
     assert hass.states.get(mock_target).state == "off"
 
-    await _set_windows(hass, mock_config_entry, [{**whole_day, "hours": 0}])
-    assert hass.states.get(mock_target).state == "off"
-
     await _set_windows(
         hass, mock_config_entry, [{**whole_day, "hours": 0, "cheap_price": 2.0}]
     )
     assert hass.states.get(mock_target).state == "on"
 
-    await _set_windows(hass, mock_config_entry, [])
+    # Above the cheap hour's 1.21
+    await _set_windows(
+        hass, mock_config_entry, [{**whole_day, "hours": 0, "cheap_price": 1.0}]
+    )
     assert hass.states.get(mock_target).state == "off"
     assert hass.states.get(SCHEDULED_ON).attributes["source"] == "auto"
 
@@ -266,6 +404,43 @@ async def test_run_limit_keeps_auto_to_one_run(
     assert hass.states.get(mock_target).state == "on"
 
 
+async def test_run_limit_must_fit_the_windows(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """Limit runs can't allow fewer runs than windows that run, nor part of one."""
+    await _setup_with_cheap_current_hour(hass, mock_config_entry, nordpool_prices)
+    await _set_windows(
+        hass,
+        mock_config_entry,
+        [
+            {"start": "06:00", "end": "08:00", "hours": 1},
+            {"start": "18:00", "end": "20:00", "hours": 1},
+        ],
+    )
+
+    with pytest.raises(ServiceValidationError) as err:
+        await _switch(hass, "turn_on", RUNS_LIMIT)
+    assert err.value.translation_key == "windows_too_many_runs"
+    assert hass.states.get(RUNS_LIMIT).state == "off"
+
+    with pytest.raises(ServiceValidationError) as err:
+        await _set_number(hass, MAX_RUNS, 2.5)
+    assert err.value.translation_key == "max_runs_not_whole"
+
+    await _set_number(hass, MAX_RUNS, 2)
+    await _switch(hass, "turn_on", RUNS_LIMIT)
+    assert hass.states.get(RUNS_LIMIT).state == "on"
+
+    with pytest.raises(ServiceValidationError) as err:
+        await _set_number(hass, MAX_RUNS, 1)
+    assert err.value.translation_key == "windows_too_many_runs"
+    assert float(hass.states.get(MAX_RUNS).state) == 2
+
+
 async def test_windows_survive_a_reload(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
@@ -280,7 +455,13 @@ async def test_windows_survive_a_reload(
         mock_config_entry,
         [
             {"start": "19:00", "end": "22:00", "hours": 1, "cheap_price": 3},
-            {"start": "06:00", "end": "08:00", "hours": 0.75, "max_price": 25},
+            {
+                "start": "06:00",
+                "end": "08:00",
+                "hours": 0.75,
+                "max_price": 25,
+                "min_run_hours": 0.5,
+            },
         ],
     )
 
@@ -288,9 +469,72 @@ async def test_windows_survive_a_reload(
     await hass.async_block_till_done()
 
     assert mock_config_entry.runtime_data.windows.windows == (
-        AutoWindow(start=time(6, 0), end=time(8, 0), hours=0.75, max_price=25),
+        AutoWindow(
+            start=time(6, 0),
+            end=time(8, 0),
+            hours=0.75,
+            max_price=25,
+            min_run_hours=0.5,
+        ),
         AutoWindow(start=time(19, 0), end=time(22, 0), hours=1, cheap_price=3),
     )
+
+
+async def test_windows_saved_without_a_min_run_load_with_none(
+    hass: HomeAssistant,
+    hass_storage: dict[str, Any],
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """Windows saved before the min run existed load with it off."""
+    hass_storage[f"{WINDOWS_STORAGE_KEY_PREFIX}.{mock_config_entry.entry_id}"] = {
+        "version": 1,
+        "minor_version": 1,
+        "key": f"{WINDOWS_STORAGE_KEY_PREFIX}.{mock_config_entry.entry_id}",
+        "data": {
+            "windows": [
+                {
+                    "start": "06:00",
+                    "end": "08:00",
+                    "hours": 1,
+                    "max_price": 0,
+                    "cheap_price": 0,
+                }
+            ]
+        },
+    }
+    await _setup_with_cheap_current_hour(hass, mock_config_entry, nordpool_prices)
+
+    assert mock_config_entry.runtime_data.windows.windows == (
+        AutoWindow(start=time(6, 0), end=time(8, 0), hours=1),
+    )
+
+
+async def test_stored_windows_that_break_a_rule_still_load(
+    hass: HomeAssistant,
+    hass_storage: dict[str, Any],
+    caplog: pytest.LogCaptureFixture,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """Windows saved before the rules keep running, with a warning to fix them."""
+    key = f"{WINDOWS_STORAGE_KEY_PREFIX}.{mock_config_entry.entry_id}"
+    hass_storage[key] = {
+        "version": 1,
+        "minor_version": 1,
+        "key": key,
+        "data": {"windows": [{"start": "06:00", "end": "08:00", "hours": 0}]},
+    }
+    await _setup_with_cheap_current_hour(hass, mock_config_entry, nordpool_prices)
+
+    assert mock_config_entry.runtime_data.windows.windows == (
+        AutoWindow(start=time(6, 0), end=time(8, 0), hours=0),
+    )
+    assert "window_does_nothing" in caplog.text
 
 
 async def test_auto_settings_are_restored(
@@ -360,6 +604,7 @@ async def test_snapshot_carries_auto_mode(
                 "hours": 2.0,
                 "max_price": 0.0,
                 "cheap_price": 0.0,
+                "min_run_hours": 0.0,
             }
         ],
         "runs_limited": False,
@@ -401,5 +646,9 @@ async def test_unpriced_day_is_off_outside_the_windows(
     assert runtime.auto_pick(slot(7)) is None
     assert runtime.auto_pick(slot(12)) is False
 
-    await _set_windows(hass, mock_config_entry, [])
+    await _set_windows(
+        hass,
+        mock_config_entry,
+        [{"start": "06:00", "end": "08:00", "hours": 0, "cheap_price": 1}],
+    )
     assert runtime.auto_pick(slot(7)) is False

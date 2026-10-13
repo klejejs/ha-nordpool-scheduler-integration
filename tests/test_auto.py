@@ -28,12 +28,12 @@ def _on_indexes(decisions: dict[datetime, bool], day: date) -> list[int]:
     )
 
 
-def _row(start: str, end: str, hours: float, **prices: float) -> AutoWindow:
+def _row(start: str, end: str, hours: float, **settings: float) -> AutoWindow:
     return AutoWindow(
         start=time.fromisoformat(start),
         end=time.fromisoformat(end),
         hours=hours,
-        **prices,
+        **settings,
     )
 
 
@@ -472,3 +472,107 @@ def test_floor_heating_example() -> None:
     expensive = [20.0] * 96
     decisions = _pick(_day_prices(DAY, expensive), *rows, max_runs=3)
     assert _on_indexes(decisions, DAY) == [24, 25, 26]
+
+
+def test_min_run_picks_an_unbroken_stretch() -> None:
+    """Scattered cheap slots lose to the cheapest stretch a min run long."""
+    raw = [50.0] * 96
+    raw[10], raw[30], raw[50], raw[70] = 1.0, 1.0, 1.0, 1.0
+    raw[40:44] = [5.0] * 4
+    decisions = _pick(_day_prices(DAY, raw), _row("00:00", "23:59", 1, min_run_hours=1))
+    assert _on_indexes(decisions, DAY) == [40, 41, 42, 43]
+
+
+def test_min_run_raises_shorter_hours() -> None:
+    """A window running for less than its min run runs for the min run."""
+    raw = [50.0] * 96
+    raw[10] = 1.0
+    raw[40:44] = [5.0] * 4
+    row = _row("00:00", "23:59", 0.5, min_run_hours=1)
+    decisions = _pick(_day_prices(DAY, raw), row)
+    assert _on_indexes(decisions, DAY) == [40, 41, 42, 43]
+    assert row.run_hours == 1
+
+
+def test_min_run_splits_hours_into_long_runs() -> None:
+    """Hours past the min run may split, as long as each run is long enough."""
+    raw = [50.0] * 96
+    raw[10:14] = [1.0] * 4
+    raw[60:64] = [2.0] * 4
+    raw[30] = 0.5
+    decisions = _pick(_day_prices(DAY, raw), _row("00:00", "23:59", 2, min_run_hours=1))
+    assert _on_indexes(decisions, DAY) == [10, 11, 12, 13, 60, 61, 62, 63]
+
+
+def test_window_shorter_than_min_run_runs_all_of_it() -> None:
+    """The min run is capped at the window, so a short window still runs."""
+    raw = [50.0] * 96
+    row = _row("06:00", "06:30", 0.25, min_run_hours=1)
+    decisions = _pick(_day_prices(DAY, raw), row)
+    assert _on_indexes(decisions, DAY) == [24, 25]
+
+
+def test_max_price_too_patchy_for_the_min_run_runs_nothing() -> None:
+    """No stretch under the max price is a min run long, so nothing runs."""
+    raw = [5.0 if i % 2 else 50.0 for i in range(96)]
+    row = _row("00:00", "23:59", 1, max_price=10, min_run_hours=1)
+    decisions = _pick(_day_prices(DAY, raw), row)
+    assert _on_indexes(decisions, DAY) == []
+
+
+def test_min_run_counts_another_windows_run() -> None:
+    """A slot joining an earlier window's run needs no min run of its own."""
+    raw = [50.0] * 96
+    raw[8:16] = [5.0] * 8
+    raw[84] = 1.0  # 21:00, right after the evening run
+    rows = (
+        _row("20:00", "21:00", 1),
+        _row("00:00", "23:59", 1.25, min_run_hours=1),
+    )
+    decisions = _pick(_day_prices(DAY, raw), *rows)
+    assert _on_indexes(decisions, DAY) == [8, 9, 10, 11, 80, 81, 82, 83, 84]
+
+
+def test_cheap_slots_shorter_than_min_run_need_a_run() -> None:
+    """Cheap slots run alone only in a stretch at least a min run long."""
+    raw = [50.0] * 96
+    raw[10] = 2.0
+    raw[40:44] = [2.0] * 4
+    raw[72] = 2.0  # 18:00, right after the 17:00 run
+    rows = (
+        _row("17:00", "18:00", 1, min_run_hours=1),
+        _row("00:00", "23:59", 0, cheap_price=3, min_run_hours=1),
+    )
+    decisions = _pick(_day_prices(DAY, raw), *rows)
+    assert _on_indexes(decisions, DAY) == [40, 41, 42, 43, 68, 69, 70, 71, 72]
+
+
+def test_min_run_with_run_limit() -> None:
+    """Two runs of at least an hour don't fit 1.5 hours, so it makes one."""
+    raw = [50.0] * 96
+    raw[10:14] = [1.0] * 4
+    raw[60:64] = [1.0] * 4
+    row = _row("00:00", "23:59", 1.5, min_run_hours=1)
+    decisions = _pick(_day_prices(DAY, raw), row, max_runs=2)
+    assert _on_indexes(decisions, DAY) == [8, 9, 10, 11, 12, 13]
+
+
+def test_min_run_stops_at_midnight() -> None:
+    """Each day is picked on its own, so a run can't borrow the next day's slots."""
+    raw = [50.0] * 96
+    raw[0], raw[95] = 1.0, 1.0
+    row = _row("22:00", "06:00", 0.5, min_run_hours=1)
+    decisions = _pick(_day_prices(DAY, raw), row)
+    assert _on_indexes(decisions, DAY) == [0, 1, 2, 3]
+
+
+def test_cheap_slot_keeps_the_shortest_min_run_it_is_cheap_in() -> None:
+    """A cheap slot runs when any window it is cheap in allows its stretch."""
+    raw = [50.0] * 96
+    raw[24:27] = [2.0] * 3  # 06:00-06:45
+    rows = (
+        _row("06:00", "07:00", 0, cheap_price=3, min_run_hours=1),
+        _row("06:15", "08:00", 0, cheap_price=3),
+    )
+    decisions = _pick(_day_prices(DAY, raw), *rows)
+    assert _on_indexes(decisions, DAY) == [25, 26]

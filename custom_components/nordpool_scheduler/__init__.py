@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, STATE_ON, Platform
 from homeassistant.core import (
     CALLBACK_TYPE,
@@ -93,7 +94,7 @@ class NordpoolSchedulerRuntimeData:
     @property
     def run_hours(self) -> float:
         """Return how long the time windows run for in total each day."""
-        return sum(window.hours for window in self.windows.windows)
+        return sum(window.run_hours for window in self.windows.windows)
 
     def refresh_auto(self, hass: HomeAssistant) -> None:
         """Recompute auto mode's picks from the current prices and settings."""
@@ -123,6 +124,10 @@ class NordpoolSchedulerRuntimeData:
         if auto is not None:
             return auto, SLOT_SOURCE_AUTO
         return self.default_on, SLOT_SOURCE_DEFAULT
+
+    def prune_overrides(self, now: datetime) -> None:
+        """Drop overrides that have ended or that auto mode or the default now match."""
+        self.schedule.prune(now, lambda start: self.base_state(start)[0])
 
     def slot_state(self, slot_start: datetime) -> tuple[bool, str]:
         """Return a slot's effective state and where it comes from."""
@@ -195,8 +200,13 @@ async def async_setup_entry(
     def _on_prices_updated() -> None:
         # The coordinator also calls this at every slot boundary, so the time
         # since the last sample is counted before the update goes out.
-        stats.sample(dt_util.utcnow())
+        now = dt_util.utcnow()
+        stats.sample(now)
         runtime.refresh_auto(hass)
+        if entry.state is ConfigEntryState.LOADED:
+            # During setup the auto settings aren't restored yet, so the base
+            # state could wrongly match an override.
+            runtime.prune_overrides(now)
         async_dispatcher_send(hass, runtime.update_signal)
 
     entry.async_on_unload(coordinator.async_add_listener(_on_prices_updated))

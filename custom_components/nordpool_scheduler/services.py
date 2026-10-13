@@ -21,6 +21,7 @@ from .const import (
     ATTR_END,
     ATTR_HOURS,
     ATTR_MAX_PRICE,
+    ATTR_MIN_RUN_HOURS,
     ATTR_SLOTS,
     ATTR_START,
     ATTR_STATE,
@@ -37,9 +38,11 @@ from .const import (
 )
 from .control import async_apply_now
 from .util import is_prices_only, slot_start_for
-from .windows import whole_minute
+from .validation import raise_first, window_problems
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
@@ -51,6 +54,7 @@ SERVICE_SET_SLOTS_SCHEMA = vol.Schema(
         ),
         vol.Required(ATTR_SLOTS): vol.All(
             cv.ensure_list,
+            vol.Length(min=1),
             [
                 vol.Schema(
                     {
@@ -80,6 +84,7 @@ def _quarter_hours(hours: float) -> float:
 
 
 _PRICE = vol.All(vol.Coerce(float), vol.Range(min=0, max=1000))
+_HOURS = vol.All(vol.Coerce(float), vol.Range(min=0, max=24), _quarter_hours)
 
 SERVICE_SET_AUTO_WINDOWS_SCHEMA = vol.Schema(
     {
@@ -88,18 +93,16 @@ SERVICE_SET_AUTO_WINDOWS_SCHEMA = vol.Schema(
         ),
         vol.Required(ATTR_WINDOWS): vol.All(
             cv.ensure_list,
+            vol.Length(min=1),
             [
                 vol.Schema(
                     {
-                        vol.Required(ATTR_START): vol.All(cv.time, whole_minute),
-                        vol.Required(ATTR_END): vol.All(cv.time, whole_minute),
-                        vol.Required(ATTR_HOURS): vol.All(
-                            vol.Coerce(float),
-                            vol.Range(min=0, max=24),
-                            _quarter_hours,
-                        ),
+                        vol.Required(ATTR_START): cv.time,
+                        vol.Required(ATTR_END): cv.time,
+                        vol.Required(ATTR_HOURS): _HOURS,
                         vol.Optional(ATTR_MAX_PRICE, default=0): _PRICE,
                         vol.Optional(ATTR_CHEAP_PRICE, default=0): _PRICE,
+                        vol.Optional(ATTR_MIN_RUN_HOURS, default=0): _HOURS,
                     }
                 )
             ],
@@ -144,10 +147,16 @@ def async_setup_services(hass: HomeAssistant) -> None:
         now = dt_util.utcnow()
         earliest = slot_start_for(now)
         latest = earliest + timedelta(days=MAX_SLOT_LOOKAHEAD_DAYS)
-        touches_current = False
+        slots: dict[datetime, str] = {}
 
         for raw_slot in call.data[ATTR_SLOTS]:
             start = dt_util.as_utc(raw_slot[ATTR_START])
+            if start in slots:
+                raise ServiceValidationError(
+                    translation_domain=DOMAIN,
+                    translation_key="slot_duplicate",
+                    translation_placeholders={"start": start.isoformat()},
+                )
             if start != slot_start_for(start):
                 raise ServiceValidationError(
                     translation_domain=DOMAIN,
@@ -163,15 +172,14 @@ def async_setup_services(hass: HomeAssistant) -> None:
                     translation_key="slot_out_of_range",
                     translation_placeholders={"start": start.isoformat()},
                 )
+            slots[start] = raw_slot[ATTR_STATE]
 
-            touches_current = touches_current or start == earliest
-            state = raw_slot[ATTR_STATE]
+        for start, state in slots.items():
             runtime.schedule.set_slot(
                 start,
                 state=None if state == SLOT_STATE_DEFAULT else state == SLOT_STATE_ON,
             )
-
-        await async_apply_now(hass, entry, sync_target=touches_current)
+        await async_apply_now(hass, entry, sync_target=earliest in slots)
 
     async def handle_clear_schedule(call: ServiceCall) -> None:
         entry = _scheduler_entry(hass, call.data[ATTR_CONFIG_ENTRY])
@@ -182,18 +190,23 @@ def async_setup_services(hass: HomeAssistant) -> None:
     async def handle_set_auto_windows(call: ServiceCall) -> None:
         entry = _scheduler_entry(hass, call.data[ATTR_CONFIG_ENTRY])
         runtime = entry.runtime_data
-        runtime.windows.set_windows(
-            [
-                AutoWindow(
-                    start=window[ATTR_START],
-                    end=window[ATTR_END],
-                    hours=window[ATTR_HOURS],
-                    max_price=window[ATTR_MAX_PRICE],
-                    cheap_price=window[ATTR_CHEAP_PRICE],
-                )
-                for window in call.data[ATTR_WINDOWS]
-            ]
+        windows = [
+            AutoWindow(
+                start=window[ATTR_START],
+                end=window[ATTR_END],
+                hours=window[ATTR_HOURS],
+                max_price=window[ATTR_MAX_PRICE],
+                cheap_price=window[ATTR_CHEAP_PRICE],
+                min_run_hours=window[ATTR_MIN_RUN_HOURS],
+            )
+            for window in call.data[ATTR_WINDOWS]
+        ]
+        raise_first(
+            window_problems(
+                windows, runs_limited=runtime.runs_limited, max_runs=runtime.max_runs
+            )
         )
+        runtime.windows.set_windows(windows)
         runtime.refresh_auto(hass)
         await async_apply_now(hass, entry)
 

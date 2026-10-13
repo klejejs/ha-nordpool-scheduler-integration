@@ -15,6 +15,7 @@ from homeassistant.const import EntityCategory
 from .const import DEFAULT_MAX_RUNS
 from .control import async_apply_now
 from .entity import build_device_info
+from .validation import raise_first, run_limit_problems
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -82,6 +83,14 @@ class NordpoolSchedulerAutoSetting(RestoreNumber):
 
     async def async_set_native_value(self, value: float) -> None:
         """Change the setting and re-pick auto mode's slots."""
+        runtime = self._entry.runtime_data
+        raise_first(
+            run_limit_problems(
+                runtime.windows.windows,
+                runs_limited=runtime.runs_limited,
+                max_runs=value,
+            )
+        )
         self._attr_native_value = value
         self._store(value)
         self.async_write_ha_state()

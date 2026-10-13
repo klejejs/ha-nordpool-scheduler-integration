@@ -47,7 +47,7 @@ A scheduler asks for:
 | Field | Description |
 |---|---|
 | Scheduler name | A name for this scheduler, used in its entity IDs |
-| Target entity | The entity to control: a `switch`, `input_boolean`, `light`, `fan` or `climate` |
+| Target entity | The entity to control: a `switch`, `input_boolean`, `light`, `fan` or `climate`, but not one of Nordpool Scheduler's own entities |
 | Default state | What the entity does in a slot with no override while auto mode is off: **Default OFF** or **Default ON** |
 | Nord Pool source | The Nord Pool integration entry to take prices from |
 | Area | Asked only when the Nord Pool entry covers more than one area |
@@ -61,7 +61,7 @@ Add one scheduler per entity. An entity can only have one scheduler.
 | Target entity | | The entity to control |
 | Default state | Default OFF | The state for slots with no override while auto mode is off |
 | Manual toggles | Only act when the schedule changes | **Only act when the schedule changes** leaves an entity you toggled by hand alone until the schedule wants something different or you change the current slot. **Enforce every 15 minutes** re-applies the schedule at every slot. |
-| Stop sensor | | Optional. A `binary_sensor`, `input_boolean` or `switch` that keeps the target off while it is on. See [Stop sensor](#stop-sensor). |
+| Stop sensor | | Optional. A `binary_sensor`, `input_boolean` or `switch` that keeps the target off while it is on. It can't be the target or one of this scheduler's own entities. See [Stop sensor](#stop-sensor). |
 | VAT percentage | 21 | Added on top of the Nord Pool price |
 
 ## Entities
@@ -95,6 +95,7 @@ What stays global and what each window sets:
 | **Auto run limit**, on or off | **Run for**, the hours it runs in its cheapest slots |
 | **Auto max runs per day** | **Max price**: the slots it picks for its hours are never above this. 0 turns it off. |
 | | **Cheap price**: its slots at or below this run too. 0 turns it off. |
+| | **Min run**: once it turns the target on, it stays on at least this long. 0 turns it off. |
 
 A new scheduler starts with one window, 00:00 to 23:59 for 2 hours, with no price limits: the target runs in the two cheapest hours of each day.
 
@@ -103,8 +104,9 @@ A new scheduler starts with one window, 00:00 to 23:59 for 2 hours, with no pric
 - **From and To.** A To before From wraps past midnight, so 20:00 to 00:00 is 20:00 to midnight. From equal to To, or 00:00 to 23:59, is the whole day. Each local day, midnight to midnight in Home Assistant's time zone, is picked on its own, so a window that wraps past midnight is two stretches of the same day.
 - **Run for.** Each window runs its hours in its cheapest slots, a tie going to the earlier slot. The day runs for the windows' hours added together.
 - **Narrowest first.** Windows are picked from the shortest From to To up, so a morning window takes its slots before a whole-day window fills in around it.
-- **Max price.** A window never picks a slot above its max price for its hours, so on an expensive day it can run for less than its hours, or not at all. With **Auto run limit** off, a cheap price set above the max price still runs its cheap slots; with the run limit on, cheap slots stay at or below the max price too.
-- **Cheap price.** Every slot in a window at or below its cheap price runs too, even past the hours. A window that runs for 0 hours picks nothing, but its cheap price still applies, so a whole-day window with 0 hours and a cheap price runs every cheap slot of the day.
+- **Max price.** A window never picks a slot above its max price for its hours, so on an expensive day it can run for less than its hours, or not at all.
+- **Cheap price.** Every slot in a window at or below its cheap price runs too, even past the hours. A window that runs for 0 hours picks nothing, but its cheap price still applies, so a whole-day window with 0 hours and a cheap price runs every cheap slot of the day. A window needs hours, a cheap price or both.
+- **Min run.** Every run a window starts lasts at least its min run, so a boiler never runs for a lone 15 minutes. Runs never span a slot above the max price, so on a patchy day the window runs fewer hours, or none. A slot that joins onto another window's run counts that run's length. Cheap slots that join onto a run always run; cheap slots on their own only run in a stretch at least the min run long. Each day is picked on its own, so a run at midnight must be long enough within its own day.
 - **Outside every window** the target is off.
 - Windows can overlap. Each picks on its own, and a slot runs if any window picks it.
 - A day is only decided once every one of its slots has a price. Until then, for example tomorrow before Nord Pool publishes, slots inside a window that runs for some time follow the default state, and every other slot is off.
@@ -115,10 +117,10 @@ A new scheduler starts with one window, 00:00 to 23:59 for 2 hours, with no pric
 With **Auto run limit** on, each window's hours run in back-to-back stretches, and the whole day makes at most **Auto max runs per day** of them.
 
 - Every window that runs for some time gets at least one run. The narrower windows go first, and a window can use more runs only when the limit leaves enough for the windows after it.
-- If more windows run for some time than the limit allows, each still gets its one run, so the day makes more runs than the limit.
 - A window's slots that join onto a run made earlier lengthen it without counting as another run.
 - A run never spans a slot above that window's max price.
 - A slot at or below a cheap price only runs when it lengthens a run, never as a run of its own.
+- Min run applies on top: each run is also at least its window's min run long. Two runs of at least an hour can't fit 1.5 hours, so such a window makes one 1.5-hour run.
 
 Turning auto mode on or off, changing the run limit or changing the windows takes effect for the current slot at once.
 
@@ -147,6 +149,8 @@ Turning auto mode on or off, changing the run limit or changing the windows take
 1. The evening window is the narrower one, so its cheapest hour between 20:00 and midnight is picked first, as one run.
 2. The whole-day window can then make up to two more runs, so the 1.5 hours go to the cheapest slots in at most two stretches: two runs, one longer run, or added onto the evening run.
 3. Two more runs is a maximum, not a promise. To always run twice more, use two windows instead, such as 00:00 to 12:00 and 12:00 to 20:00. To keep the extra runs out of the evening, end the wide window at 20:00.
+
+**A boiler that runs at least an hour at a time.** One window 00:00 to 23:59, Run for 2 h, Min run 1 h, Auto run limit off. The target runs in the cheapest two hours that come as one 2-hour run or two runs of at least an hour each, never as scattered 15-minute slots.
 
 **A range with cheap slots all day.** One window 17:00 to 23:00 for 2 hours, and a second window 00:00 to 23:59 for 0 hours with a cheap price of 3. The target runs the two cheapest hours between 17:00 and 23:00, and any slot of the day at 3 c/kWh or less.
 
@@ -180,6 +184,37 @@ The average price sensors report what the target's running time has cost per kWh
 - Counting starts when the integration is installed or updated to this version. Time while Home Assistant is stopped isn't counted.
 - The totals behind the averages are kept on disk for 400 days.
 
+## Validation
+
+Settings that contradict each other are refused with an error rather than quietly reinterpreted. The [card](https://github.com/klejejs/ha-nordpool-scheduler-card) checks the same rules before it sends a change.
+
+**Setting up and configuring a scheduler**
+
+- The scheduler name can't be empty.
+- The target must exist, be a `switch`, `input_boolean`, `light`, `fan` or `climate`, have no other scheduler, and not be one of Nordpool Scheduler's own entities.
+- The stop sensor must exist, be a `binary_sensor`, `input_boolean` or `switch`, and be neither the target nor one of this scheduler's own entities.
+- The Nord Pool source must be a Nord Pool entry, and the area one of its areas.
+- VAT is between 0 and 100 %.
+
+**Time windows**, through `set_auto_windows` or the card
+
+- There is at least one window. To stop auto mode, turn it off.
+- From and To fall on a quarter hour, :00, :15, :30 or :45, with no seconds. To may also be 23:59, which ends the window at midnight.
+- Run for and Min run are whole quarter hours from 0 to 24 h, and prices are from 0 to 1000.
+- Run for and Min run each fit in the time the window covers: 22:00 to 06:00 covers 8 hours.
+- Min run is no longer than Run for, unless Run for is 0.
+- Cheap price is no higher than Max price when both are set.
+- A window runs for some time, has a cheap price, or both.
+- No two windows cover the same time. From equal to To and 00:00 to 23:59 both cover the whole day.
+- Every window is sure of its hours. Narrower windows pick first and can take any of their slots, so a wider window's hours must fit in what they can leave it: 06:00 to 08:00 for 2 h leaves 06:00 to 09:00 only 1 hour, and 06:00 to 18:00 for 9 h can take 6 hours of 12:00 to 00:00, leaving it 6.
+- With **Auto run limit** on, **Auto max runs per day** is a whole number from 1 to 24 and at least the number of windows that run for some time, since each of them needs a run. This is checked when the windows change, when max runs changes, and when the limit is turned on.
+
+**Overrides**, through `set_slots` or the card
+
+- At least one slot per call, each on a 15-minute boundary between the current slot and two days ahead, and each only once.
+
+Windows saved by an older version that break a rule keep running as they are, and a warning in the log names the problem. The next change to the windows has to fix it.
+
 ## How it works
 
 - The day is split into 15-minute slots. A slot is either overridden **on**, overridden **off**, or follows auto mode's pick when auto mode is on and the default state otherwise.
@@ -187,14 +222,14 @@ The average price sensors report what the target's running time has cost per kWh
 - With **Only act when the schedule changes**, it only calls `turn_on` or `turn_off` when the wanted state differs from the previous slot's.
 - After a restart or reload, **Only act when the schedule changes** picks up where it left off: the wanted state is saved on disk, and the target is only switched if the current slot wants something different from what it wanted before. A manual toggle survives the restart. On a first install, and in **Enforce every 15 minutes**, it brings the target back in line with the current slot, switching it only if its state differs.
 - A target that is `unavailable` or `unknown` is skipped for that slot.
-- Overrides are stored on disk and survive restarts. Overrides for slots that have ended are removed.
+- Overrides are stored on disk and survive restarts. An override is removed once its slot has ended, or as soon as auto mode or the default state wants the same thing for its slot, for example after new prices, a change to auto mode's settings, or turning auto mode on or off. It doesn't come back if auto mode later changes back.
 - Prices are refreshed every hour, and again just after 13:00 CET when Nord Pool usually publishes the next day. Areas still on hourly prices have each hour's price copied to its four slots.
 
 ## Actions
 
 ### `nordpool_scheduler.set_slots`
 
-Sets one or more slots to `on`, `off` or `default`. `default` removes the override, so the slot follows auto mode or the default state again. Each `start` must fall on a 15-minute boundary and lie between the current slot and two days ahead.
+Sets one or more slots to `on`, `off` or `default`. `default` removes the override, so the slot follows auto mode or the default state again. Setting a slot to what auto mode or the default state already wants for it stores no override. Each `start` must fall on a 15-minute boundary, lie between the current slot and two days ahead, and appear only once per call.
 
 ```yaml
 action: nordpool_scheduler.set_slots
@@ -221,7 +256,7 @@ data:
 
 ### `nordpool_scheduler.set_auto_windows`
 
-Replaces every [time window](#time-windows) auto mode runs in. `max_price` and `cheap_price` are optional and default to 0, which turns them off. An empty list leaves auto mode nothing to run.
+Replaces every [time window](#time-windows) auto mode runs in. `max_price`, `cheap_price` and `min_run_hours` are optional and default to 0, which turns them off. `min_run_hours` is in quarter hours, like `hours`. The list can't be empty, and the windows have to follow the [rules](#validation).
 
 ```yaml
 action: nordpool_scheduler.set_auto_windows
@@ -235,6 +270,7 @@ data:
     - start: "20:00"
       end: "00:00"
       hours: 1
+      min_run_hours: 1
 ```
 
 `config_entry` is the scheduler's config entry ID. Pick the scheduler from the dropdown in the action editor and switch to YAML to see it.

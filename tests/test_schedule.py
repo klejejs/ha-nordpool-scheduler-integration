@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from custom_components.nordpool_scheduler.schedule import ScheduleStore
@@ -35,7 +35,7 @@ async def test_set_get_clear(hass: HomeAssistant) -> None:
     assert store.as_dict() == {}
 
 
-async def test_prune_ended_keeps_current_and_future_slots(hass: HomeAssistant) -> None:
+async def test_prune_keeps_current_and_future_slots(hass: HomeAssistant) -> None:
     """Only overrides for slots that have fully ended are dropped."""
     store = ScheduleStore(hass, "entry1")
     await store.async_load()
@@ -46,11 +46,35 @@ async def test_prune_ended_keeps_current_and_future_slots(hass: HomeAssistant) -
     for slot in (past, current, future):
         store.set_slot(slot, state=True)
 
-    store.prune_ended(datetime(2026, 1, 1, 8, 31, tzinfo=UTC))
+    store.prune(datetime(2026, 1, 1, 8, 31, tzinfo=UTC), lambda _start: False)
 
     assert store.get(past) is None
     assert store.get(current) is True
     assert store.get(future) is True
+
+
+async def test_prune_drops_overrides_the_base_agrees_with(
+    hass: HomeAssistant,
+) -> None:
+    """An override that matches what the slot would do anyway is dropped."""
+    store = ScheduleStore(hass, "entry1")
+    await store.async_load()
+
+    on_by_base = datetime(2026, 1, 1, 9, 0, tzinfo=UTC)
+    off_by_base = datetime(2026, 1, 1, 9, 15, tzinfo=UTC)
+    store.set_slot(on_by_base, state=True)
+    store.set_slot(on_by_base + timedelta(hours=1), state=False)
+    store.set_slot(off_by_base, state=False)
+    store.set_slot(off_by_base + timedelta(hours=1), state=True)
+
+    store.prune(
+        datetime(2026, 1, 1, 8, 31, tzinfo=UTC), lambda start: start.minute == 0
+    )
+
+    assert store.as_dict() == {
+        on_by_base + timedelta(hours=1): False,
+        off_by_base + timedelta(hours=1): True,
+    }
 
 
 async def test_persists_across_instances(hass: HomeAssistant) -> None:
