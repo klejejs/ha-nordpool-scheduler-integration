@@ -86,7 +86,7 @@ def select_auto_slots(
         day_slots = _local_day_slots(day, tz)
         local = {slot: dt_util.as_utc(slot).astimezone(tz).time() for slot in day_slots}
         covers = [
-            {slot for slot in day_slots if _in_window(local[slot], window)}
+            {slot for slot in day_slots if in_window(local[slot], window)}
             for window in windows
         ]
         if any(slot not in prices for slot in day_slots):
@@ -171,7 +171,7 @@ def blocks_slot(slot: datetime, tz: tzinfo, windows: Sequence[AutoWindow]) -> bo
     """
     at = dt_util.as_utc(slot).astimezone(tz).time()
     return not any(
-        window.slot_count > 0 and _in_window(at, window) for window in windows
+        window.slot_count > 0 and in_window(at, window) for window in windows
     )
 
 
@@ -275,7 +275,7 @@ def _stretches(slots: list[datetime], on: set[datetime]) -> list[set[datetime]]:
     return runs
 
 
-def _in_window(at: time, window: AutoWindow) -> bool:
+def in_window(at: time, window: AutoWindow) -> bool:
     """Return whether a local time of day falls in the window."""
     start, end = window.start, window.end
     if start == end:
