@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, date, datetime, time, timedelta
 from typing import TYPE_CHECKING
 
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import State
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
@@ -210,6 +211,68 @@ async def test_override_dropped_once_auto_agrees(
     await _switch(hass, "turn_off")
     assert hass.states.get(mock_target).state == "off"
     assert schedule.as_dict() == {later: True}
+
+
+def _expensive_prices(day: date, cheap_slot: datetime | None = None) -> list:
+    """Price a whole day expensive, except ``cheap_slot`` if it falls on it."""
+    midnight = datetime.combine(day, datetime.min.time(), tzinfo=OSLO_TZ)
+    next_midnight = datetime.combine(
+        day + timedelta(days=1), datetime.min.time(), tzinfo=OSLO_TZ
+    )
+    hours = (next_midnight - midnight.astimezone(UTC)) // timedelta(hours=1)
+    entries = hourly_day_prices(day, lambda _h: EXPENSIVE, hours=hours)
+    for entry in entries:
+        if datetime.fromisoformat(entry["start"]) == cheap_slot:
+            entry["price"] = CHEAP
+    return entries
+
+
+async def test_new_prices_drop_overrides_auto_now_agrees_with(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """New prices drop an override auto now agrees with, once setup has finished."""
+    await hass.config.async_set_time_zone("Europe/Oslo")
+    current = slot_start_for(dt_util.utcnow())
+    following = current + timedelta(minutes=15)
+    today = current.astimezone(OSLO_TZ).date()
+    days = (today - timedelta(days=1), today, today + timedelta(days=1))
+    for day in days:
+        nordpool_prices[day] = _expensive_prices(day)
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    await _switch(hass, "turn_on")
+    # Run every slot at or below 2 c/kWh, and nothing else.
+    await _set_windows(
+        hass,
+        mock_config_entry,
+        [{"start": "00:00", "end": "23:59", "hours": 0, "cheap_price": 2.0}],
+    )
+    await _set_slots(hass, mock_config_entry, {current: "on", following: "on"})
+    runtime = mock_config_entry.runtime_data
+    assert runtime.schedule.as_dict() == {current: True, following: True}
+
+    # The current slot turns cheap, so auto now runs it; the next stays off.
+    for day in days:
+        nordpool_prices[day] = _expensive_prices(day, cheap_slot=current)
+
+    # Mid-setup the auto settings may not be restored yet, so nothing is dropped.
+    mock_config_entry.mock_state(hass, ConfigEntryState.SETUP_IN_PROGRESS)
+    await runtime.coordinator.async_refresh()
+    await hass.async_block_till_done()
+    assert runtime.auto_pick(current) is True
+    assert runtime.schedule.as_dict() == {current: True, following: True}
+
+    mock_config_entry.mock_state(hass, ConfigEntryState.LOADED)
+    runtime.coordinator.async_update_listeners()
+    await hass.async_block_till_done()
+    assert runtime.schedule.as_dict() == {following: True}
+    assert hass.states.get(SCHEDULED_ON).attributes["source"] == "auto"
 
 
 async def test_reload_keeps_override_against_auto(
