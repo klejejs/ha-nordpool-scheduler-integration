@@ -44,7 +44,10 @@
       }
     },
     "error": {
-      "invalid_target": "The selected entity does not exist"
+      "invalid_target": "The selected entity does not exist",
+      "invalid_name": "The scheduler name can't be empty",
+      "target_is_scheduler": "The target can't be an entity of Nordpool Scheduler itself",
+      "invalid_nordpool_entry": "The selected Nord Pool source doesn't exist"
     },
     "abort": {
       "already_configured": "Already configured: an entity can only have one scheduler, and an area only one prices entry",
@@ -85,7 +88,9 @@
       "invalid_target": "The selected entity does not exist",
       "already_configured": "This entity already has a scheduler",
       "invalid_stop_entity": "The selected stop sensor does not exist",
-      "stop_is_target": "The stop sensor can't be the target entity itself"
+      "stop_is_target": "The stop sensor can't be the target entity itself",
+      "target_is_scheduler": "The target can't be an entity of Nordpool Scheduler itself",
+      "stop_is_scheduler": "The stop sensor can't be one of this scheduler's own entities"
     }
   },
   "entity": {
@@ -154,6 +159,42 @@
     },
     "prices_only_entry": {
       "message": "{title} only supplies prices and has no schedule"
+    },
+    "slot_duplicate": {
+      "message": "Slot start {start} is given more than once"
+    },
+    "windows_empty": {
+      "message": "Add at least one time window. To stop auto mode, turn Auto mode off"
+    },
+    "window_time_not_aligned": {
+      "message": "Window {window}: {time} isn't on a 15-minute boundary (:00, :15, :30 or :45, and To may also be 23:59)"
+    },
+    "window_hours_too_long": {
+      "message": "Window {window} runs for {hours} but only covers {covered}"
+    },
+    "window_min_run_too_long": {
+      "message": "Window {window} has a min run of {min_run} but only covers {covered}"
+    },
+    "window_min_run_above_hours": {
+      "message": "Window {window} has a min run of {min_run}, longer than the {hours} it runs for"
+    },
+    "window_cheap_above_max": {
+      "message": "Window {window} has a cheap price of {cheap_price}, above its max price of {max_price}"
+    },
+    "window_does_nothing": {
+      "message": "Window {window} runs for 0 h and has no cheap price, so it never turns anything on"
+    },
+    "windows_duplicate": {
+      "message": "Windows {window} and {other} cover the same time, so make them one window"
+    },
+    "windows_hours_overflow": {
+      "message": "Windows {windows} run for more hours than they cover between them"
+    },
+    "windows_too_many_runs": {
+      "message": "{count} windows run for some time, but Limit runs allows only {max_runs} runs per day and each window needs one"
+    },
+    "max_runs_not_whole": {
+      "message": "Runs per day must be a whole number, not {max_runs}"
     }
   },
   "services": {
@@ -191,7 +232,7 @@
         },
         "windows": {
           "name": "Windows",
-          "description": "Every window auto mode runs in. An empty list leaves auto mode with nothing to run."
+          "description": "Every window auto mode runs in, at least one. To stop auto mode, turn it off instead."
         }
       }
     }

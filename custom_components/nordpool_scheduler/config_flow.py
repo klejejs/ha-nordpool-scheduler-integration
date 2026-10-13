@@ -7,7 +7,8 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant import config_entries
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import selector
 
 from .const import (
@@ -84,6 +85,22 @@ def _control_mode_selector() -> selector.SelectSelector:
     )
 
 
+def _target_error(hass: HomeAssistant, entity_id: str) -> str | None:
+    if not hass.states.get(entity_id):
+        return "invalid_target"
+    registry_entry = er.async_get(hass).async_get(entity_id)
+    if registry_entry is not None and registry_entry.platform == DOMAIN:
+        return "target_is_scheduler"
+    return None
+
+
+def _nordpool_entry_error(hass: HomeAssistant, entry_id: str) -> str | None:
+    entry = hass.config_entries.async_get_entry(entry_id)
+    if entry is None or entry.domain != NORDPOOL_DOMAIN:
+        return "invalid_nordpool_entry"
+    return None
+
+
 class NordpoolSchedulerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Nordpool Scheduler."""
 
@@ -124,8 +141,12 @@ class NordpoolSchedulerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            if not self.hass.states.get(user_input[CONF_TARGET_ENTITY]):
-                errors["base"] = "invalid_target"
+            if not user_input[CONF_SCHEDULER_NAME].strip():
+                errors["base"] = "invalid_name"
+            elif error := _target_error(
+                self.hass, user_input[CONF_TARGET_ENTITY]
+            ) or _nordpool_entry_error(self.hass, user_input[CONF_NORDPOOL_ENTRY_ID]):
+                errors["base"] = error
             else:
                 self._user_input = user_input
                 return await self.async_step_area()
@@ -154,14 +175,22 @@ class NordpoolSchedulerConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Collect the Nord Pool source for a prices-only entry."""
         if not self.hass.config_entries.async_entries(NORDPOOL_DOMAIN):
             return self.async_abort(reason="nordpool_not_configured")
+        errors: dict[str, str] = {}
         if user_input is not None:
-            self._user_input = user_input
-            return await self.async_step_area()
+            if error := _nordpool_entry_error(
+                self.hass, user_input[CONF_NORDPOOL_ENTRY_ID]
+            ):
+                errors["base"] = error
+            else:
+                self._user_input = user_input
+                return await self.async_step_area()
 
         data_schema = vol.Schema(
             {self._nordpool_entry_field(): _nordpool_entry_selector()}
         )
-        return self.async_show_form(step_id="prices", data_schema=data_schema)
+        return self.async_show_form(
+            step_id="prices", data_schema=data_schema, errors=errors
+        )
 
     async def async_step_area(
         self,
@@ -230,12 +259,20 @@ class NordpoolSchedulerOptionsFlowHandler(config_entries.OptionsFlowWithReload):
         if user_input is not None:
             target_entity = user_input[CONF_TARGET_ENTITY]
             stop_entity = user_input.get(CONF_STOP_ENTITY)
-            if not self.hass.states.get(target_entity):
-                errors["base"] = "invalid_target"
+            stop_registry_entry = (
+                er.async_get(self.hass).async_get(stop_entity) if stop_entity else None
+            )
+            if error := _target_error(self.hass, target_entity):
+                errors["base"] = error
             elif stop_entity and not self.hass.states.get(stop_entity):
                 errors["base"] = "invalid_stop_entity"
             elif stop_entity == target_entity:
                 errors["base"] = "stop_is_target"
+            elif (
+                stop_registry_entry is not None
+                and stop_registry_entry.config_entry_id == self.config_entry.entry_id
+            ):
+                errors["base"] = "stop_is_scheduler"
             elif any(
                 entry.unique_id == target_entity
                 for entry in self.hass.config_entries.async_entries(DOMAIN)

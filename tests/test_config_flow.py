@@ -16,6 +16,7 @@ from custom_components.nordpool_scheduler.const import (
     CONF_DEFAULT_STATE,
     CONF_NORDPOOL_ENTRY_ID,
     CONF_SCHEDULER_NAME,
+    CONF_STOP_ENTITY,
     CONF_TARGET_ENTITY,
     CONF_VAT_PERCENT,
     CONTROL_MODE_ON_CHANGE,
@@ -434,3 +435,103 @@ async def test_flow_error_keeps_entered_values(
         for key in result["data_schema"].schema
     }
     assert suggested == entered
+
+
+async def test_flow_rejects_a_blank_name(
+    hass: HomeAssistant, mock_nordpool_entry: MockConfigEntry, mock_target: str
+) -> None:
+    """A name of only whitespace is a form error."""
+    result = await _start_flow(hass, "scheduler")
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_SCHEDULER_NAME: "  ",
+            CONF_TARGET_ENTITY: mock_target,
+            CONF_DEFAULT_STATE: "off",
+            CONF_NORDPOOL_ENTRY_ID: mock_nordpool_entry.entry_id,
+        },
+    )
+    assert result["errors"] == {"base": "invalid_name"}
+
+
+async def test_flow_rejects_an_unknown_nordpool_source(
+    hass: HomeAssistant, mock_nordpool_entry: MockConfigEntry, mock_target: str
+) -> None:
+    """A Nord Pool source that isn't a Nord Pool entry is a form error."""
+    result = await _start_flow(hass, "scheduler")
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_SCHEDULER_NAME: "Test",
+            CONF_TARGET_ENTITY: mock_target,
+            CONF_DEFAULT_STATE: "off",
+            CONF_NORDPOOL_ENTRY_ID: "missing",
+        },
+    )
+    assert result["errors"] == {"base": "invalid_nordpool_entry"}
+
+    result = await _start_flow(hass, "prices")
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_NORDPOOL_ENTRY_ID: "missing"}
+    )
+    assert result["errors"] == {"base": "invalid_nordpool_entry"}
+
+
+async def test_flows_reject_a_scheduler_entity_as_target(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """A scheduler can't switch one of this integration's own entities."""
+    await setup_scheduler_entry(hass, mock_config_entry, nordpool_prices)
+    own_switch = "switch.nordpool_scheduler_test_auto_mode"
+
+    result = await _start_flow(hass, "scheduler")
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {
+            CONF_SCHEDULER_NAME: "Loop",
+            CONF_TARGET_ENTITY: own_switch,
+            CONF_DEFAULT_STATE: "off",
+            CONF_NORDPOOL_ENTRY_ID: mock_config_entry.data[CONF_NORDPOOL_ENTRY_ID],
+        },
+    )
+    assert result["errors"] == {"base": "target_is_scheduler"}
+
+    result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_TARGET_ENTITY: own_switch,
+            CONF_DEFAULT_STATE: "off",
+            CONF_CONTROL_MODE: CONTROL_MODE_ON_CHANGE,
+            CONF_VAT_PERCENT: 21,
+        },
+    )
+    assert result["errors"] == {"base": "target_is_scheduler"}
+
+
+async def test_options_flow_rejects_its_own_entity_as_stop(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+    mock_nordpool_service: None,
+    mock_target: str,
+    nordpool_prices: dict[date, list],
+) -> None:
+    """A scheduler's own entities would stop it in a loop."""
+    await setup_scheduler_entry(hass, mock_config_entry, nordpool_prices)
+
+    result = await hass.config_entries.options.async_init(mock_config_entry.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            CONF_TARGET_ENTITY: mock_target,
+            CONF_DEFAULT_STATE: "off",
+            CONF_CONTROL_MODE: CONTROL_MODE_ON_CHANGE,
+            CONF_STOP_ENTITY: "binary_sensor.nordpool_scheduler_test_scheduled_on",
+            CONF_VAT_PERCENT: 21,
+        },
+    )
+    assert result["errors"] == {"base": "stop_is_scheduler"}

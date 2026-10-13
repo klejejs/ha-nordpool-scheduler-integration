@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from contextlib import suppress
 from datetime import time
 from typing import TYPE_CHECKING, Any
@@ -26,10 +27,13 @@ from .const import (
     STORAGE_VERSION,
     WINDOWS_STORAGE_KEY_PREFIX,
 )
+from .validation import window_problems
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.core import HomeAssistant
+
+_LOGGER = logging.getLogger(__name__)
 
 SAVE_DELAY = 5
 
@@ -98,6 +102,7 @@ class AutoWindowStore:
         self._store: Store[dict[str, Any]] = Store(
             hass, STORAGE_VERSION, f"{WINDOWS_STORAGE_KEY_PREFIX}.{entry_id}"
         )
+        self._entry_id = entry_id
         self._windows: tuple[AutoWindow, ...] = DEFAULT_WINDOWS
 
     @property
@@ -112,6 +117,14 @@ class AutoWindowStore:
             return
         windows = (_window_from_dict(data) for data in stored.get("windows", []))
         self._windows = _sorted(window for window in windows if window is not None)
+        if problems := window_problems(self._windows, runs_limited=False, max_runs=0):
+            _LOGGER.warning(
+                "The auto mode windows of entry %s break %s, so the next change to "
+                "them has to fix that: %s",
+                self._entry_id,
+                "a rule" if len(problems) == 1 else "rules",
+                "; ".join(f"{key} {values}" for key, values in problems),
+            )
 
     def set_windows(self, windows: list[AutoWindow]) -> None:
         """Replace every window."""
